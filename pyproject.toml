@@ -15,6 +15,11 @@ dependencies = []
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    # [tool.ruff] below configures ruff, so declare it here rather than
+    # leaving CI to install a tool the project never asked for. A floor
+    # rather than a pin: this repo has no lockfile, and pinning a version
+    # nobody has verified would be a claim about compatibility.
+    "ruff>=0.6",
 ]
 
 [tool.setuptools.packages.find]
