@@ -4,11 +4,16 @@ Tests for the LanguageInterface adapter.
 Validates:
   - LLMs produce claims, not beliefs
   - Claims cannot directly update beliefs (enforcement at API level)
+  - The module has no import path to belief storage at all (ADR-0003)
   - Formatting helpers return correct epistemic language
 """
 
+import ast
+from pathlib import Path
+
 import pytest
 
+import episteme.interface
 from episteme.interface import Claim, LanguageInterface
 from episteme.models import BeliefType
 
@@ -102,3 +107,69 @@ class TestLanguageInterface:
     def test_label_claim_type_default(self):
         btype = self.iface.label_claim_type("The capital of France is Paris.")
         assert isinstance(btype, BeliefType)
+
+
+class TestWriteIsolation:
+    """
+    ADR-0003 as a structural property rather than a naming convention.
+
+    ``test_llm_cannot_directly_modify_beliefs`` above checks that no public
+    method name contains a write-ish word.  That guards the current API
+    surface, but it is a heuristic: a method named ``commit_claim``,
+    ``persist`` or ``apply`` could import EpistemicMemory and write through
+    it while passing cleanly — and those are exactly the names reached for
+    when adding the orchestration shortcut ADR-0003's own "consequences"
+    section says callers will want.
+
+    What actually makes the guarantee hold is that ``episteme.interface``
+    has nothing to write *through*: it imports only ``episteme.models``.
+    Assert that directly, so the invariant fails the moment the import
+    appears, whatever the method is called.
+    """
+
+    FORBIDDEN = {"episteme.core", "episteme.memory"}
+
+    @staticmethod
+    def _imported_modules(module) -> set[str]:
+        """Every module named by an import in *module*, at any nesting depth.
+
+        Walks the AST rather than inspecting the imported module object, so
+        a deferred import inside a function body is caught too — that being
+        the obvious way to reintroduce a write path without touching the
+        header.
+        """
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        found: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                found.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                found.add(node.module)
+        return found
+
+    def test_interface_does_not_import_belief_storage(self):
+        imported = self._imported_modules(episteme.interface)
+        breaches = imported & self.FORBIDDEN
+        assert not breaches, (
+            "episteme.interface must have no import path to belief storage "
+            f"(ADR-0003), but imports: {sorted(breaches)}. Claims are "
+            "proposals; belief mutation belongs to EpistemicCore and "
+            "EpistemicMemory, orchestrated from episteme.experience."
+        )
+
+    def test_guard_detects_a_breach(self):
+        """The guard above is only worth having if it can fail.
+
+        Parse a module that *does* import belief storage — the experience
+        loop, which legitimately imports both — and confirm the same check
+        flags it.  Without this, a broken walker would report success
+        forever.
+        """
+        import episteme.experience
+
+        imported = self._imported_modules(episteme.experience)
+        assert imported & self.FORBIDDEN, (
+            "the import walker found no belief-storage imports in "
+            "episteme.experience, which imports both — the guard in "
+            "test_interface_does_not_import_belief_storage cannot be trusted"
+        )
