@@ -2,11 +2,11 @@
 Tests for EPISTEME data models (Belief, Evidence, BeliefRevision).
 """
 
+from datetime import UTC, datetime
+
 import pytest
-from datetime import timezone, datetime
 
-from episteme.models import Belief, BeliefType, BeliefState, Evidence, BeliefRevision
-
+from episteme.models import Belief, BeliefRevision, BeliefState, BeliefType, Evidence
 
 # ---------------------------------------------------------------------------
 # Evidence
@@ -129,7 +129,7 @@ class TestBeliefRevision:
             "evidence_ids": [],
             "counter_evidence_ids": [],
             "state": "ACTIVE",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
     def test_revision_id_auto_generated(self):

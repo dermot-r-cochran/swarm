@@ -11,7 +11,7 @@ Validates:
 
 import pytest
 
-from episteme.core import EpistemicCore, UpdateEligibilityError
+from episteme.core import EpistemicCore
 from episteme.models import Belief, BeliefState, BeliefType, Evidence
 
 

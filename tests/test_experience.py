@@ -12,18 +12,18 @@ Validates:
 import pytest
 
 from episteme.core import EpistemicCore
-from episteme.experience import ExperienceLoop, Observation
+from episteme.experience import ExperienceLoop
 from episteme.memory import EpistemicMemory
 from episteme.models import Belief, BeliefState, BeliefType, Evidence
 
 
 def make_belief(**kwargs) -> Belief:
-    defaults = dict(
-        statement="Gravity attracts masses.",
-        type=BeliefType.FACT,
-        confidence=0.6,
-        domain="physics",
-    )
+    defaults = {
+        "statement": "Gravity attracts masses.",
+        "type": BeliefType.FACT,
+        "confidence": 0.6,
+        "domain": "physics",
+    }
     defaults.update(kwargs)
     return Belief(**defaults)
 
@@ -38,7 +38,7 @@ def setup():
 
 class TestExperienceLoopBasic:
     def test_supporting_observation_increases_confidence(self, setup):
-        core, mem, loop = setup
+        _core, mem, loop = setup
         b = make_belief(confidence=0.5)
         mem.add_belief(b)
 
@@ -57,7 +57,7 @@ class TestExperienceLoopBasic:
         assert updated.confidence > 0.5
 
     def test_low_reliability_does_not_revise(self, setup):
-        core, mem, loop = setup
+        _core, mem, loop = setup
         b = make_belief(confidence=0.5)
         mem.add_belief(b)
 
@@ -75,7 +75,7 @@ class TestExperienceLoopBasic:
         assert updated.confidence == pytest.approx(0.5)
 
     def test_counter_observation_marks_belief_disputed(self, setup):
-        core, mem, loop = setup
+        _core, mem, loop = setup
         # Seed with one supporting evidence so state can become DISPUTED
         supporting_e = Evidence(
             summary="Initial support",
@@ -106,7 +106,7 @@ class TestExperienceLoopBasic:
         assert updated.state == BeliefState.DISPUTED
 
     def test_unknown_belief_id_handled_gracefully(self, setup):
-        core, mem, loop = setup
+        _core, _mem, loop = setup
         results = loop.observe_outcome(
             content="Some observation.",
             source="sensor",
@@ -118,7 +118,7 @@ class TestExperienceLoopBasic:
         assert "not found" in results[0].reason
 
     def test_revision_callback_invoked(self, setup):
-        core, mem, loop = setup
+        _core, mem, loop = setup
         called_with = []
         loop._on_revision = lambda b: called_with.append(b)
 
@@ -138,7 +138,7 @@ class TestExperienceLoopBasic:
         assert called_with[0].id == b.id
 
     def test_evidence_persisted_in_memory(self, setup):
-        core, mem, loop = setup
+        _core, mem, loop = setup
         b = make_belief(confidence=0.5)
         mem.add_belief(b)
 
@@ -156,17 +156,17 @@ class TestExperienceLoopBasic:
 
     def test_duplicate_evidence_not_applied_twice(self, setup):
         """Applying the same observation twice should not revise the belief twice."""
-        core, mem, loop = setup
+        _core, mem, loop = setup
         b = make_belief(confidence=0.5)
         mem.add_belief(b)
 
-        obs_kwargs = dict(
-            content="Repeating the same observation.",
-            source="instrument",
-            reliability=0.9,
-            belief_ids=[b.id],
-            domain="physics",
-        )
+        obs_kwargs = {
+            "content": "Repeating the same observation.",
+            "source": "instrument",
+            "reliability": 0.9,
+            "belief_ids": [b.id],
+            "domain": "physics",
+        }
 
         r1 = loop.observe_outcome(**obs_kwargs)
         conf_after_first = mem.get_belief(b.id).confidence
@@ -181,7 +181,7 @@ class TestExperienceLoopBasic:
         assert conf_after_first == pytest.approx(conf_after_second)
 
     def test_multiple_beliefs_revised_in_one_call(self, setup):
-        core, mem, loop = setup
+        _core, mem, loop = setup
         b1 = make_belief(statement="Claim A", confidence=0.4)
         b2 = make_belief(statement="Claim B", confidence=0.4)
         mem.add_belief(b1)
@@ -210,7 +210,7 @@ class TestLongHorizonStability:
         """Confidence must not change unless evidence is provided."""
         core = EpistemicCore(reliability_threshold=0.5)
         mem = EpistemicMemory(":memory:")
-        loop = ExperienceLoop(core, mem)
+        _loop = ExperienceLoop(core, mem)
 
         b = make_belief(confidence=0.7)
         mem.add_belief(b)
@@ -231,7 +231,7 @@ class TestLongHorizonStability:
         """
         core = EpistemicCore(reliability_threshold=0.5)
         mem = EpistemicMemory(":memory:")
-        loop = ExperienceLoop(core, mem)
+        _loop = ExperienceLoop(core, mem)
 
         b = make_belief(confidence=0.5)
         mem.add_belief(b)

@@ -16,22 +16,22 @@ from episteme.models import Belief, BeliefState, BeliefType, Evidence
 
 
 def make_belief(**kwargs) -> Belief:
-    defaults = dict(
-        statement="Water is H2O.",
-        type=BeliefType.FACT,
-        confidence=0.99,
-        domain="chemistry",
-    )
+    defaults = {
+        "statement": "Water is H2O.",
+        "type": BeliefType.FACT,
+        "confidence": 0.99,
+        "domain": "chemistry",
+    }
     defaults.update(kwargs)
     return Belief(**defaults)
 
 
 def make_evidence(**kwargs) -> Evidence:
-    defaults = dict(
-        summary="Lab measurement confirmed.",
-        reliability=0.95,
-        context_hash="ctx_chem_001",
-    )
+    defaults = {
+        "summary": "Lab measurement confirmed.",
+        "reliability": 0.95,
+        "context_hash": "ctx_chem_001",
+    }
     defaults.update(kwargs)
     return Evidence(**defaults)
 

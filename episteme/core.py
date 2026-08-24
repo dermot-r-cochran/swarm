@@ -19,8 +19,7 @@ Design invariants (per spec §1.6):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from episteme.models import Belief, BeliefState, BeliefType, Evidence
 
@@ -35,7 +34,7 @@ class UpdateDecision:
 
     eligible: bool
     reason: str
-    suggested_confidence: Optional[float] = None
+    suggested_confidence: float | None = None
 
 
 class EpistemicCore:
@@ -83,8 +82,11 @@ class EpistemicCore:
         ValueError
             If any invariant is violated.
         """
+        # ValueError, not TypeError, is the documented contract (see the
+        # docstring above) and what callers already catch - changing the
+        # raised type is an API change, not a lint fix.
         if not isinstance(belief.type, BeliefType):
-            raise ValueError(f"Unknown belief type: {belief.type!r}")
+            raise ValueError(f"Unknown belief type: {belief.type!r}")  # noqa: TRY004
         if not 0.0 <= belief.confidence <= 1.0:
             raise ValueError(
                 f"Confidence must be in [0, 1], got {belief.confidence}"
@@ -261,18 +263,17 @@ class EpistemicCore:
             "trust me",
         }
         reasons_text = " ".join(update_reasons).lower()
-        if any(kw in reasons_text for kw in inadmissible_keywords):
-            if not any(
-                admissible in reasons_text
-                for admissible in ("evidence", "observation", "data", "result")
-            ):
-                return UpdateDecision(
-                    eligible=False,
-                    reason=(
-                        "Update rejected: justification relies solely on "
-                        "language, repetition, or consensus—not evidence."
-                    ),
-                )
+        if any(kw in reasons_text for kw in inadmissible_keywords) and not any(
+            admissible in reasons_text
+            for admissible in ("evidence", "observation", "data", "result")
+        ):
+            return UpdateDecision(
+                eligible=False,
+                reason=(
+                    "Update rejected: justification relies solely on "
+                    "language, repetition, or consensus—not evidence."
+                ),
+            )
         return UpdateDecision(
             eligible=True,
             reason="Update reasons appear evidence-based.",

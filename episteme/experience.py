@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable, Optional
+from datetime import UTC, datetime
 
-from episteme.core import EpistemicCore, UpdateEligibilityError
+from episteme.core import EpistemicCore
 from episteme.memory import EpistemicMemory
-from episteme.models import Belief, BeliefState, Evidence
+from episteme.models import Belief, Evidence
 
 
 @dataclass
@@ -65,7 +65,7 @@ class RevisionResult:
     belief_id: str
     revised: bool
     reason: str
-    evidence_id: Optional[str] = None
+    evidence_id: str | None = None
 
 
 class ExperienceLoop:
@@ -87,7 +87,7 @@ class ExperienceLoop:
         self,
         core: EpistemicCore,
         memory: EpistemicMemory,
-        on_revision: Optional[Callable[[Belief], None]] = None,
+        on_revision: Callable[[Belief], None] | None = None,
     ) -> None:
         self._core = core
         self._memory = memory
@@ -140,7 +140,7 @@ class ExperienceLoop:
         *,
         domain: str = "general",
         supporting: bool = True,
-        metadata: Optional[dict] = None,
+        metadata: dict | None = None,
     ) -> list[RevisionResult]:
         """
         Convenience wrapper for ``observe()`` with keyword arguments.
@@ -175,7 +175,7 @@ class ExperienceLoop:
             summary=f"[{observation.source}] {observation.content}",
             reliability=observation.reliability,
             context_hash=context_hash,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     def _apply_to_belief(
@@ -226,7 +226,7 @@ class ExperienceLoop:
                 belief, has_supporting=True, has_counter=has_counter
             )
 
-            revision = self._memory.revise_belief(
+            self._memory.revise_belief(
                 belief_id,
                 evidence,
                 new_confidence=final_conf,
