@@ -5,21 +5,21 @@ A foundation model architecture that treats beliefs, uncertainty, evidence,
 and revision as first-class system primitives.
 """
 
-from episteme.models import Belief, BeliefType, BeliefRevision, Evidence
 from episteme.core import EpistemicCore, UpdateEligibilityError
-from episteme.memory import EpistemicMemory
-from episteme.interface import LanguageInterface, Claim
 from episteme.experience import ExperienceLoop
+from episteme.interface import Claim, LanguageInterface
+from episteme.memory import EpistemicMemory
+from episteme.models import Belief, BeliefRevision, BeliefType, Evidence
 
 __all__ = [
     "Belief",
-    "BeliefType",
     "BeliefRevision",
-    "Evidence",
-    "EpistemicCore",
-    "UpdateEligibilityError",
-    "EpistemicMemory",
-    "LanguageInterface",
+    "BeliefType",
     "Claim",
+    "EpistemicCore",
+    "EpistemicMemory",
+    "Evidence",
     "ExperienceLoop",
+    "LanguageInterface",
+    "UpdateEligibilityError",
 ]

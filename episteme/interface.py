@@ -11,8 +11,7 @@ Design invariant (spec §1.4.3):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from episteme.models import BeliefType
 

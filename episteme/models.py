@@ -10,9 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Optional
 
 
 class BeliefType(str, Enum):
@@ -50,8 +49,8 @@ class Evidence:
     summary: str
     reliability: float
     context_hash: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    id: Optional[str] = field(default=None)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    id: str | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.reliability <= 1.0:
@@ -95,8 +94,8 @@ class Belief:
     evidence_ids: list[str] = field(default_factory=list)
     counter_evidence_ids: list[str] = field(default_factory=list)
     state: BeliefState = BeliefState.ACTIVE
-    id: Optional[str] = field(default=None)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    id: str | None = field(default=None)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
@@ -142,8 +141,8 @@ class BeliefRevision:
     new_state: dict
     evidence_id: str
     reason: str
-    revised_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    id: Optional[str] = field(default=None)
+    revised_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    id: str | None = field(default=None)
 
     def __post_init__(self) -> None:
         if self.id is None:

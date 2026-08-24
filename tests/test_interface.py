@@ -10,6 +10,7 @@ Validates:
 
 import ast
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -127,7 +128,7 @@ class TestWriteIsolation:
     appears, whatever the method is called.
     """
 
-    FORBIDDEN = {"episteme.core", "episteme.memory"}
+    FORBIDDEN: ClassVar[set[str]] = {"episteme.core", "episteme.memory"}
 
     @staticmethod
     def _imported_modules(module) -> set[str]:

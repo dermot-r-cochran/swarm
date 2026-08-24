@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Self
 
 from episteme.models import Belief, BeliefRevision, BeliefState, BeliefType, Evidence
-
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS beliefs (
@@ -164,14 +164,14 @@ class EpistemicMemory:
                 ),
             )
 
-    def get_evidence_by_context_hash(self, context_hash: str) -> Optional[Evidence]:
+    def get_evidence_by_context_hash(self, context_hash: str) -> Evidence | None:
         """Retrieve an evidence object by its context_hash (for deduplication)."""
         row = self._conn.execute(
             "SELECT * FROM evidence WHERE context_hash = ? LIMIT 1", (context_hash,)
         ).fetchone()
         return _row_to_evidence(row) if row else None
 
-    def get_evidence(self, evidence_id: str) -> Optional[Evidence]:
+    def get_evidence(self, evidence_id: str) -> Evidence | None:
         """Retrieve an evidence object by id."""
         row = self._conn.execute(
             "SELECT * FROM evidence WHERE id = ?", (evidence_id,)
@@ -218,7 +218,7 @@ class EpistemicMemory:
                 ),
             )
 
-    def get_belief(self, belief_id: str) -> Optional[Belief]:
+    def get_belief(self, belief_id: str) -> Belief | None:
         """Retrieve the current state of a belief by id."""
         row = self._conn.execute(
             "SELECT * FROM beliefs WHERE id = ?", (belief_id,)
@@ -227,8 +227,8 @@ class EpistemicMemory:
 
     def list_beliefs(
         self,
-        domain: Optional[str] = None,
-        state: Optional[BeliefState] = None,
+        domain: str | None = None,
+        state: BeliefState | None = None,
     ) -> list[Belief]:
         """Return all beliefs, optionally filtered by domain and/or state."""
         query = "SELECT * FROM beliefs WHERE 1=1"
@@ -247,10 +247,10 @@ class EpistemicMemory:
         belief_id: str,
         evidence: Evidence,
         *,
-        new_confidence: Optional[float] = None,
-        new_state: Optional[BeliefState] = None,
-        new_evidence_ids: Optional[list[str]] = None,
-        new_counter_evidence_ids: Optional[list[str]] = None,
+        new_confidence: float | None = None,
+        new_state: BeliefState | None = None,
+        new_evidence_ids: list[str] | None = None,
+        new_counter_evidence_ids: list[str] | None = None,
         reason: str = "",
     ) -> BeliefRevision:
         """
@@ -293,7 +293,7 @@ class EpistemicMemory:
             new_state=new_state_dict,
             evidence_id=evidence.id,
             reason=reason,
-            revised_at=datetime.now(timezone.utc),
+            revised_at=datetime.now(UTC),
         )
 
         with self._transaction() as conn:
@@ -356,7 +356,7 @@ class EpistemicMemory:
         """Close the database connection."""
         self._conn.close()
 
-    def __enter__(self) -> "EpistemicMemory":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: object) -> None:
