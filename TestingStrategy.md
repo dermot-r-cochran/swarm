@@ -26,10 +26,15 @@ One test file per module, 87 tests total:
   duplicate-belief rejection, revision history appending with previous state
   preserved, and `test_beliefs_never_deleted` — the direct guard on
   **ADR-0002 (append-only revision memory)**.
-- `test_experience.py` — the observe→revise loop end to end, including the two
-  anti-drift guards: no confidence movement without evidence, and adversarial
-  repetition of the same observation not compounding (duplicate evidence is
-  deduplicated by `context_hash`).
+- `test_experience.py` — the observe→revise loop end to end, including the
+  anti-drift guards, each driven through the real loop path:
+  `test_no_drift_without_evidence` (turns that record observations naming no
+  belief leave its confidence byte-identical),
+  `test_adversarial_repetition_does_not_drift_belief` (one observation
+  submitted M times revises exactly once), the underlying `context_hash`
+  dedup guard `test_duplicate_evidence_not_applied_twice`, and the
+  cross-side guard that one evidence record cannot both support and dispute
+  a belief.
 - `test_interface.py` — **ADR-0003 (language-interface write isolation)**,
   enforced structurally: an AST walk asserts `episteme.interface` imports
   neither `episteme.core` nor `episteme.memory` at any nesting depth, so the

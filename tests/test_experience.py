@@ -180,6 +180,46 @@ class TestExperienceLoopBasic:
         assert r2[0].revised is False
         assert conf_after_first == pytest.approx(conf_after_second)
 
+    def test_same_evidence_cannot_support_and_dispute(self, setup):
+        """The same deduplicated evidence must not land on both sides of a
+        belief - that would leave it DISPUTED against itself."""
+        _core, mem, loop = setup
+        b = make_belief(confidence=0.5)
+        mem.add_belief(b)
+
+        obs_kwargs = {
+            "content": "One measurement, read twice.",
+            "source": "instrument",
+            "reliability": 0.9,
+            "belief_ids": [b.id],
+        }
+
+        r1 = loop.observe_outcome(**obs_kwargs, supporting=True)
+        assert r1[0].revised is True
+
+        r2 = loop.observe_outcome(**obs_kwargs, supporting=False)
+        assert r2[0].revised is False
+
+        updated = mem.get_belief(b.id)
+        assert set(updated.evidence_ids) & set(updated.counter_evidence_ids) == set()
+        assert updated.state != BeliefState.DISPUTED
+
+    def test_conflicting_reliability_for_same_context_fails_loudly(self, setup):
+        """A re-observation of the same content/source with a different
+        reliability is an unresolvable conflict with the stored (immutable)
+        evidence, not something to silently ignore."""
+        _core, mem, loop = setup
+        b = make_belief(confidence=0.5)
+        mem.add_belief(b)
+
+        loop.observe_outcome(
+            content="Same reading.", source="sensor", reliability=0.9, belief_ids=[b.id]
+        )
+        with pytest.raises(ValueError, match="reliability"):
+            loop.observe_outcome(
+                content="Same reading.", source="sensor", reliability=0.1, belief_ids=[b.id]
+            )
+
     def test_multiple_beliefs_revised_in_one_call(self, setup):
         _core, mem, loop = setup
         b1 = make_belief(statement="Claim A", confidence=0.4)
@@ -207,44 +247,62 @@ class TestLongHorizonStability:
     """
 
     def test_no_drift_without_evidence(self):
-        """Confidence must not change unless evidence is provided."""
+        """Confidence must not change unless evidence targets the belief.
+
+        The turns drive the real loop path (observations are recorded), but
+        none of them names the belief - so its confidence must be
+        byte-identical afterwards, not merely approximately equal.
+        """
         core = EpistemicCore(reliability_threshold=0.5)
         mem = EpistemicMemory(":memory:")
-        _loop = ExperienceLoop(core, mem)
+        loop = ExperienceLoop(core, mem)
 
         b = make_belief(confidence=0.7)
         mem.add_belief(b)
 
         initial_confidence = mem.get_belief(b.id).confidence
 
-        # 1000 turns with no evidence → confidence unchanged
-        for _ in range(1000):
-            pass  # No observations applied
+        for turn in range(200):
+            results = loop.observe_outcome(
+                content=f"Ambient observation {turn}.",
+                source="sensor",
+                reliability=0.9,
+                belief_ids=[],
+            )
+            assert results == []
 
         final_confidence = mem.get_belief(b.id).confidence
-        assert final_confidence == pytest.approx(initial_confidence)
+        assert final_confidence == initial_confidence
 
     def test_adversarial_repetition_does_not_drift_belief(self):
         """
-        Adversarial language pressure (repeated assertions without evidence)
-        must not revise beliefs (spec §1.6, §1.8).
+        Adversarial repetition of one observation must not compound
+        (spec §1.6, §1.8): the first application may revise, every repeat is
+        refused by the context_hash deduplication, and confidence after M
+        submissions equals confidence after 1.
         """
         core = EpistemicCore(reliability_threshold=0.5)
         mem = EpistemicMemory(":memory:")
-        _loop = ExperienceLoop(core, mem)
+        loop = ExperienceLoop(core, mem)
 
         b = make_belief(confidence=0.5)
         mem.add_belief(b)
 
-        initial_confidence = mem.get_belief(b.id).confidence
+        obs_kwargs = {
+            "content": "The claim is definitely, definitely true.",
+            "source": "insistent-source",
+            "reliability": 0.9,
+            "belief_ids": [b.id],
+        }
 
-        # Check adversarial pressure guard
-        for _ in range(100):
-            decision = core.check_adversarial_pressure(
-                ["everyone agrees", "consensus says so", "trust me"]
-            )
-            # Adversarial updates must be rejected — never apply them
-            assert decision.eligible is False
+        first = loop.observe_outcome(**obs_kwargs)
+        assert first[0].revised is True
+        confidence_after_one = mem.get_belief(b.id).confidence
 
-        final_confidence = mem.get_belief(b.id).confidence
-        assert final_confidence == pytest.approx(initial_confidence)
+        for _ in range(99):
+            repeat = loop.observe_outcome(**obs_kwargs)
+            assert repeat[0].revised is False
+
+        updated = mem.get_belief(b.id)
+        assert updated.confidence == confidence_after_one
+        assert updated.evidence_ids == [first[0].evidence_id]
