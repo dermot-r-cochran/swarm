@@ -62,6 +62,10 @@ class EpistemicCore:
             raise ValueError(
                 f"reliability_threshold must be in [0, 1], got {reliability_threshold}"
             )
+        if not 0.0 <= max_confidence_delta <= 1.0:
+            raise ValueError(
+                f"max_confidence_delta must be in [0, 1], got {max_confidence_delta}"
+            )
         self._reliability_threshold = reliability_threshold
         self._max_confidence_delta = max_confidence_delta
 
@@ -124,9 +128,12 @@ class EpistemicCore:
         Decide whether *belief* may be revised given *evidence*.
 
         Implements the update rules from spec §1.6:
-          1. New evidence must be present (evidence not already in belief).
+          1. New evidence must be present (evidence not already recorded on
+             the belief — as supporting or as counter-evidence).
           2. Evidence reliability ≥ threshold.
-          3. Proposed confidence change ≤ max_confidence_delta.
+          3. Proposed confidence is a probability (in [0, 1]), and the
+             change is ≤ max_confidence_delta (larger in-range proposals
+             are clamped, not rejected).
 
         Returns
         -------
@@ -144,6 +151,19 @@ class EpistemicCore:
                 ),
             )
 
+        # One evidence record cannot stand on both sides of a belief: if it
+        # is already recorded as counter-evidence, recording it as supporting
+        # too would leave the belief disputed against itself.
+        if evidence.id in belief.counter_evidence_ids:
+            return UpdateDecision(
+                eligible=False,
+                reason=(
+                    f"Evidence {evidence.id!r} is already recorded as "
+                    f"counter-evidence for belief {belief.id!r}; it cannot "
+                    "also support it."
+                ),
+            )
+
         # Rule 2 – reliability must meet threshold
         if evidence.reliability < self._reliability_threshold:
             return UpdateDecision(
@@ -151,6 +171,18 @@ class EpistemicCore:
                 reason=(
                     f"Evidence reliability {evidence.reliability:.3f} is below "
                     f"the required threshold {self._reliability_threshold:.3f}."
+                ),
+            )
+
+        # A proposed confidence outside [0, 1] is not a probability at all;
+        # refuse it outright. This must run BEFORE the delta rule below,
+        # whose clamping would otherwise fold garbage values into
+        # valid-looking updates.
+        if not 0.0 <= proposed_confidence <= 1.0:
+            return UpdateDecision(
+                eligible=False,
+                reason=(
+                    f"Proposed confidence {proposed_confidence} is outside [0, 1]."
                 ),
             )
 
@@ -168,15 +200,6 @@ class EpistemicCore:
                     f"{self._max_confidence_delta:.3f}; clamped to {clamped:.3f}."
                 ),
                 suggested_confidence=clamped,
-            )
-
-        # Validate proposed confidence range
-        if not 0.0 <= proposed_confidence <= 1.0:
-            return UpdateDecision(
-                eligible=False,
-                reason=(
-                    f"Proposed confidence {proposed_confidence} is outside [0, 1]."
-                ),
             )
 
         return UpdateDecision(
@@ -202,6 +225,19 @@ class EpistemicCore:
                 reason=(
                     f"Counter-evidence {counter_evidence.id!r} already recorded "
                     f"for belief {belief.id!r}."
+                ),
+            )
+
+        # The mirror of evaluate_update's cross-check: evidence already
+        # recorded as supporting cannot also be recorded against the belief,
+        # or the belief becomes disputed against itself on one record.
+        if counter_evidence.id in belief.evidence_ids:
+            return UpdateDecision(
+                eligible=False,
+                reason=(
+                    f"Evidence {counter_evidence.id!r} is already recorded as "
+                    f"supporting belief {belief.id!r}; it cannot also "
+                    "dispute it."
                 ),
             )
 
