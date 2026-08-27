@@ -64,6 +64,26 @@ class TestEpistemicCoreValidation:
         core = EpistemicCore()
         core.validate_evidence(make_evidence())  # should not raise
 
+    def test_validate_belief_rejects_mutated_type_and_confidence(self):
+        """The dataclasses validate at construction, so validate_belief's own
+        checks matter for objects mutated afterwards."""
+        core = EpistemicCore()
+        b = make_belief()
+        b.type = 123
+        with pytest.raises(ValueError, match="belief type"):
+            core.validate_belief(b)
+        b = make_belief()
+        b.confidence = 5.0
+        with pytest.raises(ValueError, match="Confidence"):
+            core.validate_belief(b)
+
+    def test_validate_evidence_rejects_mutated_reliability(self):
+        core = EpistemicCore()
+        e = Evidence(summary="ok", reliability=0.9, context_hash="ctx")
+        e.reliability = -1.0
+        with pytest.raises(ValueError, match="reliability"):
+            core.validate_evidence(e)
+
     def test_validate_evidence_empty_summary(self):
         core = EpistemicCore()
         e = make_evidence(summary="  ")
@@ -118,6 +138,23 @@ class TestUpdateEligibility:
         assert decision.eligible is True
         assert decision.suggested_confidence == pytest.approx(0.6, abs=1e-9)
 
+    def test_out_of_range_proposed_confidence_rejected(self):
+        """A proposal outside [0, 1] is refused outright, never clamped into range."""
+        b = make_belief(confidence=0.5)
+        e = make_evidence(reliability=0.9)
+        for garbage in (1.9, -5.0):
+            decision = self.core.evaluate_update(b, e, proposed_confidence=garbage)
+            assert decision.eligible is False
+            assert "outside [0, 1]" in decision.reason
+
+    def test_evidence_already_counter_cannot_support(self):
+        """One evidence record cannot stand on both sides of a belief."""
+        e = make_evidence()
+        b = make_belief(counter_evidence_ids=[e.id])
+        decision = self.core.evaluate_update(b, e, proposed_confidence=0.9)
+        assert decision.eligible is False
+        assert "counter-evidence" in decision.reason
+
     def test_language_only_update_rejected(self):
         """Updates driven purely by language/repetition must be blocked."""
         core = EpistemicCore()
@@ -170,6 +207,31 @@ class TestCounterEvidence:
         e = make_evidence(reliability=0.3, context_hash="ctx_counter")
         decision = self.core.evaluate_counter_evidence(b, e)
         assert decision.eligible is False
+
+    def test_supporting_evidence_cannot_dispute(self):
+        """The mirror of the evaluate_update cross-check: evidence recorded
+        as supporting cannot also be recorded against the same belief."""
+        e = make_evidence(reliability=0.7, context_hash="ctx_counter")
+        b = make_belief(evidence_ids=[e.id])
+        decision = self.core.evaluate_counter_evidence(b, e)
+        assert decision.eligible is False
+        assert "supporting" in decision.reason
+
+
+class TestCoreConstruction:
+    def test_reliability_threshold_property_reflects_construction(self):
+        assert EpistemicCore(reliability_threshold=0.7).reliability_threshold == 0.7
+
+    def test_invalid_reliability_threshold_rejected(self):
+        for bad in (-0.1, 1.5):
+            with pytest.raises(ValueError, match="reliability_threshold"):
+                EpistemicCore(reliability_threshold=bad)
+
+    def test_invalid_max_confidence_delta_rejected(self):
+        """A delta cap outside [0, 1] would turn no-op updates into jumps."""
+        for bad in (-1.0, 1.5):
+            with pytest.raises(ValueError, match="max_confidence_delta"):
+                EpistemicCore(0.5, bad)
 
 
 class TestBeliefStateResolution:

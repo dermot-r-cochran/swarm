@@ -96,6 +96,24 @@ class TestLanguageInterface:
         text = self.iface.format_belief("X is Y.", 0.5, "UNDECIDED")
         assert "undecided" in text.lower()
 
+    def test_format_belief_without_uncertainty_is_bare_statement(self):
+        text = self.iface.format_belief(
+            "Water is H2O.", 0.95, "ACTIVE", include_uncertainty=False
+        )
+        assert text == "Water is H2O."
+
+    def test_format_belief_qualifier_ladder(self):
+        """Each confidence band gets its own hedging language."""
+        cases = [
+            (0.95, "established"),
+            (0.75, "likely"),
+            (0.55, "plausible"),
+            (0.3, "uncertain"),
+        ]
+        for confidence, expected in cases:
+            text = self.iface.format_belief("X is Y.", confidence, "ACTIVE")
+            assert expected in text.lower(), (confidence, text)
+
     def test_format_unknown_query(self):
         text = self.iface.format_unknown("What is the speed of dark?")
         assert "unknown" in text.lower()

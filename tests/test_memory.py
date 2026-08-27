@@ -9,6 +9,9 @@ Validates:
   - Missing belief handling
 """
 
+import json
+import threading
+
 import pytest
 
 from episteme.memory import EpistemicMemory
@@ -195,3 +198,74 @@ class TestBeliefRevision:
 
         assert mem.get_belief(b.id) is not None
         assert len(mem.get_revisions(b.id)) == 5
+
+
+class TestConcurrencyAndContracts:
+    """One EpistemicMemory shared across threads - the use its own
+    check_same_thread=False connection invites - must serialise its
+    read-modify-writes, and errors surface as the documented ValueError."""
+
+    def test_revise_with_unpersisted_evidence_raises_value_error(self, mem):
+        """The documented contract is ValueError, not a leaked sqlite3 error."""
+        b = make_belief()
+        mem.add_belief(b)
+        stray = make_evidence(context_hash="ctx_never_persisted")
+        with pytest.raises(ValueError, match="not persisted"):
+            mem.revise_belief(b.id, stray, new_confidence=0.5, reason="x")
+        # The failed transaction rolled back cleanly: no revision recorded.
+        assert mem.get_revisions(b.id) == []
+
+    def test_concurrent_add_belief_one_winner_rest_value_error(self, mem):
+        b = make_belief()
+        n_threads = 8
+        barrier = threading.Barrier(n_threads)
+        outcomes = []
+        outcomes_lock = threading.Lock()
+
+        def add():
+            barrier.wait()
+            try:
+                mem.add_belief(b)
+                result = "ok"
+            except ValueError:
+                result = "value-error"
+            with outcomes_lock:
+                outcomes.append(result)
+
+        threads = [threading.Thread(target=add) for _ in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert outcomes.count("ok") == 1
+        assert outcomes.count("value-error") == n_threads - 1
+
+    def test_concurrent_revisions_serialise_without_lost_updates(self, mem):
+        """N concurrent revisions yield N revision records whose
+        previous_state snapshots are all distinct - two sharing one would be
+        a lost update misreported by the ADR-0002 audit trail."""
+        b = make_belief(confidence=0.0)
+        mem.add_belief(b)
+        n_threads = 8
+        evidences = [make_evidence(context_hash=f"ctx_thread_{i}") for i in range(n_threads)]
+        for e in evidences:
+            mem.add_evidence(e)
+        barrier = threading.Barrier(n_threads)
+
+        def revise(i: int) -> None:
+            barrier.wait()
+            mem.revise_belief(
+                b.id, evidences[i], new_confidence=(i + 1) / 100, reason=f"r{i}"
+            )
+
+        threads = [threading.Thread(target=revise, args=(i,)) for i in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        revisions = mem.get_revisions(b.id)
+        assert len(revisions) == n_threads
+        snapshots = [json.dumps(r.previous_state, sort_keys=True) for r in revisions]
+        assert len(set(snapshots)) == n_threads

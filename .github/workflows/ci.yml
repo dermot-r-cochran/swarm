@@ -52,11 +52,12 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run tests
-        # --cov-fail-under is a ratchet, not a target: 95 is the measured
-        # coverage on the day the gate was added (2026-08-24, 369 statements,
-        # 18 missed), so it can only be raised, never quietly fallen below.
-        # Raise it in the same change that adds the tests that earn it.
-        run: pytest --cov=episteme --cov-fail-under=95
+        # --cov-fail-under is a ratchet, not a target: each figure is the
+        # measured coverage on the day it was set (95 when the gate was
+        # added 2026-08-24; 100 on 2026-08-27, 388 statements, 0 missed),
+        # so it can only be raised, never quietly fallen below. Raise it in
+        # the same change that adds the tests that earn it.
+        run: pytest --cov=episteme --cov-fail-under=100
 
   lint:
     # This job exists now because the findings are fixed - an earlier revision
@@ -84,3 +85,29 @@ jobs:
 
       - name: ruff check
         run: ruff check .
+
+  typecheck:
+    # Deliberately non-strict: the [tool.mypy] block in pyproject.toml is a
+    # baseline that passed on the day it was added, so this job was green
+    # the moment it existed - the same deal the lint job's header records.
+    # Strict mode is a separate decision (it requires redesigning the
+    # optional-id dataclass pattern), not a config flip here.
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: mypy
+        run: mypy

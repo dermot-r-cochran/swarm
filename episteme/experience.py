@@ -159,7 +159,18 @@ class ExperienceLoop:
     # ------------------------------------------------------------------
 
     def _build_evidence(self, observation: Observation) -> Evidence:
-        """Convert an Observation into an Evidence object, deduplicating by context_hash."""
+        """
+        Convert an Observation into an Evidence object, deduplicating by
+        context_hash (content + source).
+
+        Raises
+        ------
+        ValueError
+            If evidence with the same context already exists but reports a
+            different reliability. Evidence is immutable, so a conflicting
+            reliability for the same context is an unresolvable ambiguity —
+            failing loudly beats silently keeping either value.
+        """
         context_payload = json.dumps(
             {"content": observation.content, "source": observation.source},
             sort_keys=True,
@@ -169,6 +180,14 @@ class ExperienceLoop:
         # Reuse existing evidence with the same context to enable duplicate detection
         existing = self._memory.get_evidence_by_context_hash(context_hash)
         if existing is not None:
+            if existing.reliability != observation.reliability:
+                raise ValueError(
+                    f"Observation from {observation.source!r} matches existing "
+                    f"evidence {existing.id!r} (same content and source) but "
+                    f"reports reliability {observation.reliability}, while the "
+                    f"stored evidence has {existing.reliability}. Evidence is "
+                    "immutable; resolve the conflict before re-observing."
+                )
             return existing
 
         return Evidence(
@@ -231,7 +250,10 @@ class ExperienceLoop:
                 evidence,
                 new_confidence=final_conf,
                 new_state=new_state,
-                new_evidence_ids=new_evidence_ids,
+                # ids are auto-filled in __post_init__ and never None at
+                # runtime; retyping the optional-id pattern is a separate
+                # decision (see the mypy baseline note in pyproject.toml).
+                new_evidence_ids=new_evidence_ids,  # type: ignore[arg-type]
                 reason=decision.reason,
             )
 
@@ -266,7 +288,8 @@ class ExperienceLoop:
             belief_id,
             evidence,
             new_state=new_state,
-            new_counter_evidence_ids=new_counter_ids,
+            # Same optional-id caveat as the supporting path above.
+            new_counter_evidence_ids=new_counter_ids,  # type: ignore[arg-type]
             reason=decision.reason,
         )
 

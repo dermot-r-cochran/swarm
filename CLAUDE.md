@@ -17,11 +17,12 @@ python -m pip install -e ".[dev]"   # install (Python 3.11+; dev = pytest, pytes
 pytest                               # run all tests (config in pyproject.toml, testpaths=["tests"])
 pytest tests/test_core.py            # one module's tests
 pytest tests/test_core.py -k name    # a single test by keyword
-pytest --cov=episteme --cov-fail-under=95   # what CI actually runs
-ruff check .                         # lint (line-length 100, target py311); no typechecker is configured
+pytest --cov=episteme --cov-fail-under=100   # what CI actually runs
+ruff check .                         # lint (line-length 100, target py311)
+mypy                                 # typecheck (non-strict baseline; [tool.mypy] in pyproject.toml)
 ```
 
-CI (`.github/workflows/ci.yml`) runs the coverage-gated pytest command on Python 3.11/3.12/3.13 (`fail-fast: false`) plus `ruff check .`. Two standing policies: the 95% coverage figure is a **ratchet, not a target** — raise it in the same change that adds the tests that earn it, never let it fall; and `ruff check .` stays clean — a `noqa` needs a written reason beside it.
+CI (`.github/workflows/ci.yml`) runs the coverage-gated pytest command on Python 3.11/3.12/3.13 (`fail-fast: false`) plus `ruff check .` and `mypy` (a deliberately non-strict baseline — see pyproject.toml's `[tool.mypy]` note; strict mode would mean redesigning the optional-id dataclass pattern and is a separate decision). Two standing policies: the coverage figure (currently 100%) is a **ratchet, not a target** — raise it in the same change that adds the tests that earn it, never let it fall; and `ruff check .` stays clean — a `noqa` (or `type: ignore`) needs a written reason beside it.
 
 ## Architecture
 
