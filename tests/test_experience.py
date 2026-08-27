@@ -12,7 +12,7 @@ Validates:
 import pytest
 
 from episteme.core import EpistemicCore
-from episteme.experience import ExperienceLoop
+from episteme.experience import ExperienceLoop, Observation
 from episteme.memory import EpistemicMemory
 from episteme.models import Belief, BeliefState, BeliefType, Evidence
 
@@ -132,6 +132,29 @@ class TestExperienceLoopBasic:
             belief_ids=[b.id],
             domain="physics",
             supporting=True,
+        )
+
+        assert len(called_with) == 1
+        assert called_with[0].id == b.id
+
+    def test_observation_rejects_out_of_range_reliability(self):
+        with pytest.raises(ValueError, match="reliability"):
+            Observation(content="x", source="s", reliability=1.5)
+
+    def test_revision_callback_invoked_on_counter_evidence(self, setup):
+        _core, mem, loop = setup
+        called_with = []
+        loop._on_revision = lambda b: called_with.append(b)
+
+        b = make_belief(confidence=0.8)
+        mem.add_belief(b)
+
+        loop.observe_outcome(
+            content="Contradicting result.",
+            source="lab",
+            reliability=0.9,
+            belief_ids=[b.id],
+            supporting=False,
         )
 
         assert len(called_with) == 1

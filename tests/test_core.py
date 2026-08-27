@@ -64,6 +64,26 @@ class TestEpistemicCoreValidation:
         core = EpistemicCore()
         core.validate_evidence(make_evidence())  # should not raise
 
+    def test_validate_belief_rejects_mutated_type_and_confidence(self):
+        """The dataclasses validate at construction, so validate_belief's own
+        checks matter for objects mutated afterwards."""
+        core = EpistemicCore()
+        b = make_belief()
+        b.type = 123
+        with pytest.raises(ValueError, match="belief type"):
+            core.validate_belief(b)
+        b = make_belief()
+        b.confidence = 5.0
+        with pytest.raises(ValueError, match="Confidence"):
+            core.validate_belief(b)
+
+    def test_validate_evidence_rejects_mutated_reliability(self):
+        core = EpistemicCore()
+        e = Evidence(summary="ok", reliability=0.9, context_hash="ctx")
+        e.reliability = -1.0
+        with pytest.raises(ValueError, match="reliability"):
+            core.validate_evidence(e)
+
     def test_validate_evidence_empty_summary(self):
         core = EpistemicCore()
         e = make_evidence(summary="  ")
@@ -199,6 +219,9 @@ class TestCounterEvidence:
 
 
 class TestCoreConstruction:
+    def test_reliability_threshold_property_reflects_construction(self):
+        assert EpistemicCore(reliability_threshold=0.7).reliability_threshold == 0.7
+
     def test_invalid_reliability_threshold_rejected(self):
         for bad in (-0.1, 1.5):
             with pytest.raises(ValueError, match="reliability_threshold"):

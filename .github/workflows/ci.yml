@@ -54,10 +54,10 @@ jobs:
       - name: Run tests
         # --cov-fail-under is a ratchet, not a target: each figure is the
         # measured coverage on the day it was set (95 when the gate was
-        # added 2026-08-24; 97 on 2026-08-27, 388 statements, 12 missed),
+        # added 2026-08-24; 100 on 2026-08-27, 388 statements, 0 missed),
         # so it can only be raised, never quietly fallen below. Raise it in
         # the same change that adds the tests that earn it.
-        run: pytest --cov=episteme --cov-fail-under=97
+        run: pytest --cov=episteme --cov-fail-under=100
 
   lint:
     # This job exists now because the findings are fixed - an earlier revision
