@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -115,6 +116,14 @@ class EpistemicMemory:
     db_path:
         Path to the SQLite database file.  Pass ``":memory:"`` for an
         in-process ephemeral store (useful in tests).
+
+    Thread safety
+    -------------
+    One instance may be shared across threads (the connection is opened with
+    ``check_same_thread=False``): a process-wide lock is held for the whole
+    of every read-modify-write (``add_belief``, ``revise_belief``), so
+    concurrent writers serialise rather than racing between the read and the
+    write. Reads outside those methods are unsynchronised point queries.
     """
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
@@ -123,6 +132,9 @@ class EpistemicMemory:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        # RLock: revise_belief holds it across its read-modify-write while
+        # _transaction acquires it again for the write half.
+        self._lock = threading.RLock()
         self._init_schema()
 
     # ------------------------------------------------------------------
@@ -135,12 +147,13 @@ class EpistemicMemory:
 
     @contextmanager
     def _transaction(self) -> Generator[sqlite3.Connection, None, None]:
-        try:
-            yield self._conn
-            self._conn.commit()
-        except Exception:
-            self._conn.rollback()
-            raise
+        with self._lock:
+            try:
+                yield self._conn
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
 
     # ------------------------------------------------------------------
     # Evidence
@@ -191,32 +204,36 @@ class EpistemicMemory:
         ValueError
             If a belief with the same id already exists.
         """
-        existing = self.get_belief(belief.id)
-        if existing is not None:
+        # No read-then-write pre-check: the PRIMARY KEY is the authority on
+        # duplicates, so two concurrent add_belief calls cannot both pass a
+        # check and then collide — the loser's IntegrityError is translated
+        # to the documented ValueError instead.
+        try:
+            with self._transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO beliefs
+                        (id, statement, type, confidence, domain,
+                         evidence_ids, counter_evidence_ids, state, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        belief.id,
+                        belief.statement,
+                        belief.type.value,
+                        belief.confidence,
+                        belief.domain,
+                        json.dumps(belief.evidence_ids),
+                        json.dumps(belief.counter_evidence_ids),
+                        belief.state.value,
+                        belief.created_at.isoformat(),
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
             raise ValueError(
                 f"Belief {belief.id!r} already exists. "
                 "Use revise_belief() to update it."
-            )
-        with self._transaction() as conn:
-            conn.execute(
-                """
-                INSERT INTO beliefs
-                    (id, statement, type, confidence, domain,
-                     evidence_ids, counter_evidence_ids, state, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    belief.id,
-                    belief.statement,
-                    belief.type.value,
-                    belief.confidence,
-                    belief.domain,
-                    json.dumps(belief.evidence_ids),
-                    json.dumps(belief.counter_evidence_ids),
-                    belief.state.value,
-                    belief.created_at.isoformat(),
-                ),
-            )
+            ) from exc
 
     def get_belief(self, belief_id: str) -> Belief | None:
         """Retrieve the current state of a belief by id."""
@@ -267,8 +284,34 @@ class EpistemicMemory:
         Raises
         ------
         ValueError
-            If the belief does not exist.
+            If the belief does not exist, or *evidence* has not been
+            persisted (``add_evidence()`` first).
         """
+        # The lock spans the read as well as the write: two concurrent
+        # revisions must serialise, or both would snapshot the same
+        # previous_state and the audit trail would record a lost update.
+        with self._lock:
+            return self._revise_belief_locked(
+                belief_id,
+                evidence,
+                new_confidence=new_confidence,
+                new_state=new_state,
+                new_evidence_ids=new_evidence_ids,
+                new_counter_evidence_ids=new_counter_evidence_ids,
+                reason=reason,
+            )
+
+    def _revise_belief_locked(
+        self,
+        belief_id: str,
+        evidence: Evidence,
+        *,
+        new_confidence: float | None = None,
+        new_state: BeliefState | None = None,
+        new_evidence_ids: list[str] | None = None,
+        new_counter_evidence_ids: list[str] | None = None,
+        reason: str = "",
+    ) -> BeliefRevision:
         belief = self.get_belief(belief_id)
         if belief is None:
             raise ValueError(f"Belief {belief_id!r} not found.")
@@ -296,45 +339,62 @@ class EpistemicMemory:
             revised_at=datetime.now(UTC),
         )
 
-        with self._transaction() as conn:
-            # Persist updated belief
-            conn.execute(
-                """
-                UPDATE beliefs SET
-                    confidence = ?,
-                    state = ?,
-                    evidence_ids = ?,
-                    counter_evidence_ids = ?
-                WHERE id = ?
-                """,
-                (
-                    belief.confidence,
-                    belief.state.value,
-                    json.dumps(belief.evidence_ids),
-                    json.dumps(belief.counter_evidence_ids),
-                    belief_id,
-                ),
-            )
-            # Append revision record
-            conn.execute(
-                """
-                INSERT INTO belief_revisions
-                    (id, belief_id, previous_state, new_state,
-                     evidence_id, reason, revised_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    revision.id,
-                    revision.belief_id,
-                    json.dumps(revision.previous_state),
-                    json.dumps(revision.new_state),
-                    revision.evidence_id,
-                    revision.reason,
-                    revision.revised_at.isoformat(),
-                ),
-            )
+        try:
+            with self._transaction() as conn:
+                self._write_revision(conn, belief, belief_id, revision)
+        except sqlite3.IntegrityError as exc:
+            # The belief's existence was checked above, so the only foreign
+            # key left to fail is the evidence's.
+            raise ValueError(
+                f"Evidence {evidence.id!r} is not persisted; call "
+                "add_evidence() before revise_belief()."
+            ) from exc
 
         return revision
+
+    def _write_revision(
+        self,
+        conn: sqlite3.Connection,
+        belief: Belief,
+        belief_id: str,
+        revision: BeliefRevision,
+    ) -> None:
+        # Persist updated belief
+        conn.execute(
+            """
+            UPDATE beliefs SET
+                confidence = ?,
+                state = ?,
+                evidence_ids = ?,
+                counter_evidence_ids = ?
+            WHERE id = ?
+            """,
+            (
+                belief.confidence,
+                belief.state.value,
+                json.dumps(belief.evidence_ids),
+                json.dumps(belief.counter_evidence_ids),
+                belief_id,
+            ),
+        )
+        # Append revision record
+        conn.execute(
+            """
+            INSERT INTO belief_revisions
+                (id, belief_id, previous_state, new_state,
+                 evidence_id, reason, revised_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                revision.id,
+                revision.belief_id,
+                json.dumps(revision.previous_state),
+                json.dumps(revision.new_state),
+                revision.evidence_id,
+                revision.reason,
+                revision.revised_at.isoformat(),
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Revision history
