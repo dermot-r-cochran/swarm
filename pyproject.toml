@@ -20,11 +20,28 @@ dev = [
     # rather than a pin: this repo has no lockfile, and pinning a version
     # nobody has verified would be a claim about compatibility.
     "ruff>=0.6",
+    "mypy>=1.10",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["episteme*"]
+
+[tool.setuptools.package-data]
+# py.typed marks the package's annotations as usable by downstream
+# typecheckers (PEP 561).
+episteme = ["py.typed"]
+
+[tool.mypy]
+# A deliberately non-strict baseline that passes on the day it was added
+# (2026-08-27): default checks only, no strict mode. The known unsoundness
+# is the optional-id dataclass pattern (Belief.id / Evidence.id declared
+# `str | None` but always filled in __post_init__); the three call sites it
+# taints carry documented `type: ignore[arg-type]` markers. Turning on
+# strict mode means redesigning that pattern across the package - a
+# separate decision, not a config flip.
+python_version = "3.11"
+files = ["episteme"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -334,7 +334,10 @@ class EpistemicMemory:
             belief_id=belief_id,
             previous_state=previous_state,
             new_state=new_state_dict,
-            evidence_id=evidence.id,
+            # Evidence.id is auto-filled in __post_init__ and never None at
+            # runtime; retyping the optional-id pattern is a separate
+            # decision (see the mypy baseline note in pyproject.toml).
+            evidence_id=evidence.id,  # type: ignore[arg-type]
             reason=reason,
             revised_at=datetime.now(UTC),
         )

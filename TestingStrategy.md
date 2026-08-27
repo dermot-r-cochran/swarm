@@ -13,7 +13,8 @@ future change breaches an ADR, not to exercise a feature.
 
 ## Layer 1 — the test suite (`tests/`, pytest)
 
-One test file per module, 87 tests total:
+One test file per module (plus `test_public_api.py` for the package's
+exported surface), 102 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -50,10 +51,11 @@ Run: `pytest` (config in `pyproject.toml`; `testpaths = ["tests"]`).
   and "fails everywhere" are different findings and both are worth seeing in
   one run.
 - **Coverage ratchet**: the CI run is `pytest --cov=episteme
-  --cov-fail-under=95`. 95 is the *measured* coverage on the day the gate was
-  added (2026-08-24, 369 statements, 18 missed) — a ratchet, not a target: it
-  can only be raised, never quietly fallen below. Raise it in the same change
-  that adds the tests that earn it.
+  --cov-fail-under=97`. Each figure is the *measured* coverage on the day it
+  was set (95 at the gate's introduction, 2026-08-24, 369 statements, 18
+  missed; 97 on 2026-08-27, 388 statements, 12 missed) — a ratchet, not a
+  target: it can only be raised, never quietly fallen below. Raise it in the
+  same change that adds the tests that earn it.
 - **ruff lint job** — added only once the findings were fixed, per the
   workflow's original note: a permanently failing check teaches everyone to
   ignore checks, so lint arrived green on its first run. The standing policy:

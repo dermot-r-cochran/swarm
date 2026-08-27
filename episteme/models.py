@@ -24,7 +24,14 @@ class BeliefType(str, Enum):
 
 
 class BeliefState(str, Enum):
-    """Lifecycle state of a belief."""
+    """Lifecycle state of a belief.
+
+    ``REVISED`` is part of the spec's taxonomy but currently has no
+    producer: ``EpistemicCore.resolve_state`` never returns it and no
+    writer sets it. It is retained deliberately — it is public API and a
+    stored-state vocabulary — rather than removed silently; giving it a
+    producer is a design decision, not a cleanup.
+    """
 
     ACTIVE = "ACTIVE"
     DISPUTED = "DISPUTED"

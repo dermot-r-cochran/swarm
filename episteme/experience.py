@@ -250,7 +250,10 @@ class ExperienceLoop:
                 evidence,
                 new_confidence=final_conf,
                 new_state=new_state,
-                new_evidence_ids=new_evidence_ids,
+                # ids are auto-filled in __post_init__ and never None at
+                # runtime; retyping the optional-id pattern is a separate
+                # decision (see the mypy baseline note in pyproject.toml).
+                new_evidence_ids=new_evidence_ids,  # type: ignore[arg-type]
                 reason=decision.reason,
             )
 
@@ -285,7 +288,8 @@ class ExperienceLoop:
             belief_id,
             evidence,
             new_state=new_state,
-            new_counter_evidence_ids=new_counter_ids,
+            # Same optional-id caveat as the supporting path above.
+            new_counter_evidence_ids=new_counter_ids,  # type: ignore[arg-type]
             reason=decision.reason,
         )
 

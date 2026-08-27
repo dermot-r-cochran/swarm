@@ -25,7 +25,13 @@ from episteme.models import Belief, BeliefState, BeliefType, Evidence
 
 
 class UpdateEligibilityError(Exception):
-    """Raised when a belief update is rejected by the epistemic core."""
+    """An ineligible belief update, escalated to an exception.
+
+    The core itself never raises this: per ADR-0001 it evaluates and returns
+    an :class:`UpdateDecision` rather than raising. The class is provided for
+    callers that want to turn ``eligible=False`` into a hard failure at their
+    own boundary (``raise UpdateEligibilityError(decision.reason)``).
+    """
 
 
 @dataclass(frozen=True)
