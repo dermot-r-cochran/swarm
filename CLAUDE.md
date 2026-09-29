@@ -45,3 +45,35 @@ Each accepted decision has a test that fails the moment it is breached — a new
 3. **ADR-0003, language-interface write isolation** — belief mutations flow only through core→memory, never from language output; guarded structurally in `test_interface.py` by an AST walk asserting `episteme.interface` imports neither `episteme.core` nor `episteme.memory` (widen its `FORBIDDEN` set if new writable modules appear).
 
 Testing mechanics — what each test file guards, the coverage-ratchet and lint policies in full, how to extend the suite, and the known gaps — live in `TestingStrategy.md`; don't duplicate them here.
+
+## Related repositories
+
+The map of Dermot's public repositories and what crosses between them is
+`RELATED-REPOSITORIES.md` in `dermot-r-cochran/star-rangers`; this section
+names only this repository's own neighbours (added 2026-09-29 at his
+direction). Nothing below shares code or data with this repository; what is
+shared is stated exactly.
+
+- **`dermot-r-cochran/star-rangers`** describes this repository in public. Its
+  About page (*The engineering behind the record*) names EPISTEME as lineage:
+  beliefs as explicit objects with confidence and lifecycle state, evidence
+  validated before it may influence them, every revision kept; and its codex
+  entry *Three Disciplines of the Record* mirrors that discipline in-world.
+  A change to those primitives, a rename or a retirement here makes that
+  description false, so say so in the pull request and expect a follow-up
+  there.
+- **`dermot-r-cochran/careful-memory`** is the nearest in subject: a per-user
+  belief store with derived confidence, an append-only record and
+  evidence-gated writes. Independent implementations; neither imports the
+  other, and AGENTS.md's rules bind only here.
+- **Siblings by convention:** `careful-memory`, `world-model`, `foundation-model`,
+  `shadow-architect`, `visual-llm`, `swarm`, `Voting` and
+  `architecture-definition-model` all carry a `TestingStrategy.md` that keeps
+  testing mechanics apart from the repository's rules; six run CI coverage as a
+  ratchet at the measured baseline (`swarm`, `careful-memory`, `world-model`,
+  `foundation-model`, `shadow-architect`, `visual-llm`); five keep
+  architecture decision records with a guard test each (`swarm`,
+  `careful-memory`, `world-model`, `shadow-architect`, the ADM). When a
+  convention here needs changing, those are the reference for how it is done
+  in the account, and a change to the convention itself is worth landing in
+  all of them or in none.
