@@ -66,6 +66,11 @@ shared is stated exactly.
   belief store with derived confidence, an append-only record and
   evidence-gated writes. Independent implementations; neither imports the
   other, and AGENTS.md's rules bind only here.
+- **`dermot-r-cochran/virtual-anthropology`** (The Archipelago) applies the
+  same separation to a publication pipeline: every report section carries an
+  epistemic category (observation, metric, hypothesis, interpretation) and
+  interpretation is never generated. A resemblance of discipline, not a
+  relationship; AGENTS.md binds only here (added 2026-10-01).
 - **Siblings by convention:** `careful-memory`, `world-model`, `foundation-model`,
   `shadow-architect`, `visual-llm`, `swarm`, `Voting` and
   `architecture-definition-model` all carry a `TestingStrategy.md` that keeps
