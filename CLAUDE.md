@@ -39,7 +39,7 @@ Flow: claim/observation → evidence → `EpistemicCore` eligibility decision �
 
 ### The four ADRs (docs/adr/) and their guards
 
-Each accepted decision has a test that fails the moment it is breached — a new ADR gets its guard test in the same change:
+Three of the four accepted decisions have a test that fails the moment they are breached, and a new ADR gets its guard test in the same change. ADR-0001 has no named guard: its property (the core returns decisions and writes nothing) is exercised by `test_core.py` and asserted in `test_public_api.py`, and a structural guard (an AST walk that `episteme.core` imports neither `episteme.memory` nor `sqlite3`) is the cheap way to close that when someone next touches the tests.
 
 1. **ADR-0001, side-effect-free core** — `EpistemicCore` evaluates and returns decisions only; callers orchestrate writes through memory afterwards.
 2. **ADR-0002, append-only revision memory** — every belief change appends an immutable revision; guarded by `test_memory.py::test_beliefs_never_deleted`.
