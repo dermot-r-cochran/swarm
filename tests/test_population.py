@@ -4,6 +4,8 @@ Tests for population synthesis.
 Validates:
   - clustering is deterministic and preserves a minority of one
   - a holder's later stance stands, the earlier is kept and counted
+  - the synthesis does not depend on input order, and ambiguous input
+    (a repeated holder id, two stances at one latest `at`) is refused
   - every rendered position carries its citations
   - bridges are positions every speaking cluster shares
   - claims are OPINION proposals whose confidence is a share, not a verdict
@@ -163,6 +165,33 @@ class TestSynthesis:
         statements = [p.statement for p in s.positions]
         assert statements == sorted(statements)
         assert "goal: keep the old ways" in statements
+
+    def test_reversed_utterance_list_gives_an_equal_synthesis(self):
+        holders, utterances = _population()
+        # two records of one stance at one `at`, cited differently: the tie
+        # must not let list order choose the citation order
+        utterances += [
+            Utterance("h1", "prop-2", "yes", "h1 yes", _cite(8), at=7),
+            Utterance("h1", "prop-2", "yes", "h1 yes again", _cite(9), at=7),
+        ]
+        forward = synthesise(holders, utterances, k=2)
+        backward = synthesise(list(reversed(holders)), list(reversed(utterances)), k=2)
+        assert forward == backward
+
+    def test_repeated_holder_id_rejected(self):
+        """Two copies of one id would count twice in every share."""
+        holders, utterances = _population()
+        with pytest.raises(ValueError, match=r"more than once: \['h2'\]"):
+            synthesise([*holders, Holder("h2", {"autonomy": 0.1})], utterances)
+
+    def test_different_stances_at_the_same_latest_at_rejected(self):
+        """Neither stance is later, so which one stands would be list order."""
+        holders, utterances = _population()
+        utterances.append(
+            Utterance("h5", "prop-1", "no", "h5 votes no", _cite(10), kind="vote", at=6)
+        )
+        with pytest.raises(ValueError, match="'h5' has different stances on 'prop-1'"):
+            synthesise(holders, utterances)
 
     def test_no_utterances_is_an_empty_structure(self):
         holders, _ = _population()

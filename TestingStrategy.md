@@ -14,7 +14,7 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface), 109 tests total:
+exported surface), 141 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -48,7 +48,9 @@ exported surface), 109 tests total:
   the earlier kept as a citation and counted as a changed mind; every
   rendered position line carrying its citations; bridges; OPINION claims
   whose confidence is a share; the Rand-index `agreement` including its
-  rejection of mismatched holder sets. The two guards: an AST walk asserting
+  rejection of mismatched holder sets; a synthesis independent of input
+  order; and the refusal of ambiguous input (a repeated holder id, or two
+  stances at one holder's latest `at` on a topic). The two guards: an AST walk asserting
   no function in `episteme.population` returns an `Interpretation` and that
   the module imports neither `episteme.core` nor `episteme.memory`, and the
   refusal of an unsigned or empty `Interpretation`.
