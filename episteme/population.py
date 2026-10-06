@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections import Counter
 from dataclasses import dataclass, field
 
 from episteme.interface import Claim
@@ -53,7 +54,9 @@ class Utterance:
     ``topic`` and ``stance`` are the normalised position (``"prop-0001"`` /
     ``"yes"``); ``text`` is the verbatim record. ``at`` orders utterances
     (a sequence number or tick); a holder with two stances on one topic is
-    counted as having changed their mind, and the later stance stands.
+    counted as having changed their mind, and the later stance stands. Two
+    different stances at the same latest ``at`` are refused by
+    ``synthesise``, since neither is later.
     """
 
     holder: str
@@ -196,21 +199,48 @@ def synthesise(
     a bridge when at least two clusters spoke on its topic and every one of
     them has a holder taking it; a topic one cluster alone spoke on bridges
     nothing.
+
+    Ambiguous input is refused rather than resolved by guesswork (AGENTS.md
+    principle 4): a holder id listed twice raises ``ValueError`` (the
+    population count would include both copies and every share would be
+    wrong), and so does a holder whose latest utterances on one topic share
+    an ``at`` but differ in stance (which one is their position would
+    otherwise be decided by list order). The result does not depend on the
+    order of either list.
     """
+    id_counts = Counter(h.id for h in holders)
+    repeated = sorted(hid for hid, n in id_counts.items() if n > 1)
+    if repeated:
+        raise ValueError(f"holder ids listed more than once: {repeated}")
     clusters = cluster_by_values(holders, k)
     cluster_of = {m: c.id for c in clusters for m in c.members}
     unknown = sorted({u.holder for u in utterances} - set(cluster_of))
     if unknown:
         raise ValueError(f"utterances from holders not in the population: {unknown}")
 
+    # The key orders every field, so utterances that tie on ``at`` still sort
+    # the same way whatever order the caller listed them in, and the
+    # citations come out in the same order too.
     by_topic_holder: dict[tuple[str, str], list[Utterance]] = {}
-    for u in sorted(utterances, key=lambda u: (u.topic, u.holder, u.at)):
+    for u in sorted(
+        utterances,
+        key=lambda u: (
+            u.topic, u.holder, u.at, u.stance, u.citation.source, u.citation.locator,
+            u.kind, u.text,
+        ),
+    ):
         by_topic_holder.setdefault((u.topic, u.holder), []).append(u)
 
     positions: dict[str, dict] = {}
     spoke: dict[str, set[str]] = {}
     for (topic, holder), history in by_topic_holder.items():
         latest = history[-1]
+        tied = sorted({u.stance for u in history if u.at == latest.at})
+        if len(tied) > 1:
+            raise ValueError(
+                f"holder {holder!r} has different stances on {topic!r} at the same "
+                f"at={latest.at}: {tied}; which is their position is ambiguous"
+            )
         changed = len({u.stance for u in history}) > 1
         spoke.setdefault(topic, set()).add(cluster_of[holder])
         entry = positions.setdefault(
