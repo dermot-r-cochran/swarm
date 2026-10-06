@@ -33,16 +33,18 @@ Five collaborating layers (see `README.md` for the flow diagram in prose):
 - `episteme/memory.py` — `EpistemicMemory`, SQLite-backed: current belief state plus immutable, append-only `BeliefRevision` history. Beliefs are never overwritten or deleted.
 - `episteme/interface.py` — `LanguageInterface`, the LLM adapter: extracts and formats `Claim` objects (proposals, not beliefs). It **cannot** write beliefs and does not import `core` or `memory`.
 - `episteme/experience.py` — the observe→revise loop: turns observations into deduplicated `Evidence` (by `context_hash`), consults the core, then applies eligible updates through memory.
+- `episteme/population.py` — population synthesis (added 2026-10-06 at Dermot's direction): holders with declared values and their cited utterances in, structure out — deterministic farthest-first clusters, each position with its holders, per-cluster support, changed minds and every citation, the bridges, and a Rand-index `agreement` between clusterings. It emits `Claim` proposals of type OPINION (confidence is a share, never a truth signal) and can produce no `Belief`; it imports only `models` and `interface`. It generates no interpretation. `examples/archipelago_first_fork.py` runs it over a published export from `virtual-anthropology`.
 
-Flow: claim/observation → evidence → `EpistemicCore` eligibility decision → `EpistemicMemory` write + revision record → consumers query beliefs/history.
+Flow: claim/observation → evidence → `EpistemicCore` eligibility decision → `EpistemicMemory` write + revision record → consumers query beliefs/history. Population synthesis sits beside the interface, upstream of the core: its claims enter the flow only if a caller admits them as evidence.
 
-### The three ADRs (docs/adr/) and their guards
+### The four ADRs (docs/adr/) and their guards
 
 Each accepted decision has a test that fails the moment it is breached — a new ADR gets its guard test in the same change:
 
 1. **ADR-0001, side-effect-free core** — `EpistemicCore` evaluates and returns decisions only; callers orchestrate writes through memory afterwards.
 2. **ADR-0002, append-only revision memory** — every belief change appends an immutable revision; guarded by `test_memory.py::test_beliefs_never_deleted`.
 3. **ADR-0003, language-interface write isolation** — belief mutations flow only through core→memory, never from language output; guarded structurally in `test_interface.py` by an AST walk asserting `episteme.interface` imports neither `episteme.core` nor `episteme.memory` (widen its `FORBIDDEN` set if new writable modules appear).
+4. **ADR-0004, population synthesis is cited structure, never interpretation** — the synthesis reports clusters, positions, support and citations, produces OPINION claims and no beliefs, and generates no interpretation; guarded in `test_population.py` by an AST walk asserting no function returns an `Interpretation` and that the module imports neither `core` nor `memory`, and by the refusal of an unsigned `Interpretation`.
 
 Testing mechanics — what each test file guards, the coverage-ratchet and lint policies in full, how to extend the suite, and the known gaps — live in `TestingStrategy.md`; don't duplicate them here.
 
@@ -69,8 +71,18 @@ shared is stated exactly.
 - **`dermot-r-cochran/virtual-anthropology`** (The Archipelago) applies the
   same separation to a publication pipeline: every report section carries an
   epistemic category (observation, metric, hypothesis, interpretation) and
-  interpretation is never generated. A resemblance of discipline, not a
-  relationship; AGENTS.md binds only here (added 2026-10-01).
+  interpretation is never generated. Since 2026-10-06 **data crosses one
+  way**: `examples/archipelago_first_fork.py` reads a published export
+  (`the-archipelago/exports/<experiment>/dataset.json` and
+  `governance_events.json`) from a sibling checkout and synthesises its
+  citizens' positions; `tests/test_example_archipelago.py` pins the shape it
+  reads, so a change to that export format fails here. No code is shared,
+  nothing is written back, and AGENTS.md binds only here.
+- **`dermot-r-cochran/Voting`** holds the design the population module
+  serves, `docs/lot-then-vote.md`: a chamber whose candidates are drawn by
+  lot and elected as normal, briefed by a synthesis its members may dissent
+  from on the record. That note names this module; a rename here is a
+  follow-up there.
 - **Siblings by convention:** `careful-memory`, `world-model`, `foundation-model`,
   `shadow-architect`, `visual-llm`, `swarm`, `Voting` and
   `architecture-definition-model` all carry a `TestingStrategy.md` that keeps
