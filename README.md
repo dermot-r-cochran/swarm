@@ -20,8 +20,34 @@ where:
 - `episteme/memory.py` – SQLite-backed memory layer
 - `episteme/interface.py` – language/LLM adapter
 - `episteme/experience.py` – observation-to-revision loop
+- `episteme/population.py` – population synthesis: cited structure over many holders' positions
+- `examples/archipelago_first_fork.py` – the synthesis run over a published Archipelago export
 - `tests/` – unit tests for all modules
 - `docs/adr/` – architectural decision records
+
+## Population synthesis
+
+`episteme/population.py` applies the same discipline to a population that the
+rest of the package applies to one agent. Given holders with declared values
+and their recorded utterances (a vote, a petition, a stated goal), each with a
+citation to the record it came from, `synthesise` returns structure: clusters
+of holders by value (deterministic farthest-first, no randomness), each
+position with who holds it, its support per cluster, how many changed their
+mind to reach it and every citation behind it, and the positions that bridge
+every cluster that spoke. `agreement` compares two clusterings by the Rand
+index, so a structure that survives a change of method can be told from an
+artefact of one. `claims` turns positions into `Claim` proposals of type
+OPINION whose confidence is a share, not a verdict; the module can produce no
+`Belief`. It generates no interpretation: a `Synthesis` carries an
+`Interpretation` only when a named author supplies one (ADR-0004).
+
+The design it serves is a chamber whose candidates are drawn by lot and
+elected as normal (`dermot-r-cochran/Voting`, `docs/lot-then-vote.md`), where
+the synthesis is a briefing to the drawn, who may dissent from it on the
+record. The first population it reads is The Archipelago's simulated citizens
+(`examples/archipelago_first_fork.py`, from a checkout of
+`dermot-r-cochran/virtual-anthropology`), who have no privacy to lose and a
+hash-chained record to check the synthesis against.
 
 ## Architectural overview
 

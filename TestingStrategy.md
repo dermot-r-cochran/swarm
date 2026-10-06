@@ -42,6 +42,23 @@ exported surface), 109 tests total:
   invariant fails the moment the import appears, whatever the method is
   called. The `FORBIDDEN` set is the one place to widen if new writable
   modules appear.
+- `test_population.py` — **ADR-0004 (population synthesis is cited
+  structure, never interpretation)**: deterministic, order-independent
+  clustering that keeps a minority of one; the later stance standing with
+  the earlier kept as a citation and counted as a changed mind; every
+  rendered position line carrying its citations; bridges; OPINION claims
+  whose confidence is a share; the Rand-index `agreement` including its
+  rejection of mismatched holder sets. The two guards: an AST walk asserting
+  no function in `episteme.population` returns an `Interpretation` and that
+  the module imports neither `episteme.core` nor `episteme.memory`, and the
+  refusal of an unsigned or empty `Interpretation`.
+- `test_example_archipelago.py` — pins the shape `examples/archipelago_first_fork.py`
+  reads from a `virtual-anthropology` export (a fixture with `dataset.json`
+  and `governance_events.json` in that shape): votes cited to their
+  `VoteCast` event where one exists and to the proposal where none does,
+  petitions parsed or refused loudly, goals as utterances. The example is
+  outside `--cov=episteme`, so this is a smoke test of the crossing, not a
+  coverage contributor.
 
 Run: `pytest` (config in `pyproject.toml`; `testpaths = ["tests"]`).
 
