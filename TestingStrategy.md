@@ -82,6 +82,17 @@ Run: `pytest` (config in `pyproject.toml`; `testpaths = ["tests"]`).
   one in the tree: `validate_belief` keeps raising `ValueError` because that
   is the documented contract, and changing the raised type is an API change,
   not a lint fix).
+- **docs job** (added 2026-10-10, the README-proof convention) — runs
+  `python .github/scripts/check_docs.py`, standard library only, nothing
+  installed. It fails on a relative link in `README.md` or under `docs/` that
+  resolves to nothing, a front-matter block below the top of any Markdown
+  file, an ADR index (`docs/adr/README.md`) that does not list exactly the
+  ADR files on disk, and a README repository layout that names a missing
+  path, leaves out a module in `episteme/`, or claims tests for a module that
+  has no `tests/test_<module>.py`. What it cannot check is that a test the
+  README cites still proves the claim beside it: every capability bullet in
+  the README names its test or says "no test yet", and keeping that true is
+  part of any change that renames a test or a capability.
 
 Nothing in CI depends on a cloud provider, an LLM vendor, or an orchestration
 framework (AGENTS.md principle 10).

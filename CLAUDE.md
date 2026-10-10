@@ -22,7 +22,7 @@ ruff check .                         # lint (line-length 100, target py311)
 mypy                                 # typecheck (non-strict baseline; [tool.mypy] in pyproject.toml)
 ```
 
-CI (`.github/workflows/ci.yml`) runs the coverage-gated pytest command on Python 3.11/3.12/3.13 (`fail-fast: false`) plus `ruff check .` and `mypy` (a deliberately non-strict baseline — see pyproject.toml's `[tool.mypy]` note; strict mode would mean redesigning the optional-id dataclass pattern and is a separate decision). Two standing policies: the coverage figure (currently 100%) is a **ratchet, not a target** — raise it in the same change that adds the tests that earn it, never let it fall; and `ruff check .` stays clean — a `noqa` (or `type: ignore`) needs a written reason beside it.
+CI (`.github/workflows/ci.yml`) runs the coverage-gated pytest command on Python 3.11/3.12/3.13 (`fail-fast: false`) plus `ruff check .`, `mypy` and a stdlib doc check (`python .github/scripts/check_docs.py`: links, front matter, the README layout and the ADR index against the disk). Every capability the README claims names the test that proves it, or says "no test yet" or "not yet implemented" (Dermot, 10 October 2026); keep it true when a test or a capability is renamed. The type check is a deliberately non-strict baseline (see pyproject.toml's `[tool.mypy]` note; strict mode would mean redesigning the optional-id dataclass pattern and is a separate decision). Two standing policies: the coverage figure (currently 100%) is a **ratchet, not a target** — raise it in the same change that adds the tests that earn it, never let it fall; and `ruff check .` stays clean — a `noqa` (or `type: ignore`) needs a written reason beside it.
 
 ## Architecture
 

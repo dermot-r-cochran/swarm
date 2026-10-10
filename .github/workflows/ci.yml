@@ -111,3 +111,22 @@ jobs:
 
       - name: mypy
         run: mypy
+
+  docs:
+    # Standard library only, so nothing is installed. Fails on a broken
+    # relative link in README.md or docs/, a second front-matter block, and
+    # a README layout or ADR index that does not match the disk. Added
+    # 2026-10-10 with the README-proof convention; see TestingStrategy.md.
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Doc check
+        run: python .github/scripts/check_docs.py
