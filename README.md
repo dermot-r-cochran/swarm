@@ -16,8 +16,9 @@ where:
   `tests/test_experience.py::TestExperienceLoopBasic::test_low_reliability_does_not_revise`),
 - update rules are enforced by a side-effect-free core (the rules:
   `tests/test_core.py::TestUpdateEligibility::test_language_only_update_rejected`
-  and `::test_confidence_delta_clamped`; that the core writes nothing has no
-  test yet: ADR-0001 has no named guard, as `CLAUDE.md` records),
+  and `::test_confidence_delta_clamped`; that the core writes nothing:
+  `tests/test_core.py::TestSideEffectFree::test_core_does_not_import_storage`,
+  ADR-0001's guard),
 - revisions are persisted with immutable history for auditability
   (`tests/test_memory.py::TestBeliefRevision::test_beliefs_never_deleted`,
   ADR-0002's guard, and `::test_revision_previous_state_preserved`; that a

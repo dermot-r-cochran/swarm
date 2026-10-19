@@ -39,9 +39,9 @@ Flow: claim/observation → evidence → `EpistemicCore` eligibility decision �
 
 ### The four ADRs (docs/adr/) and their guards
 
-Three of the four accepted decisions have a test that fails the moment they are breached, and a new ADR gets its guard test in the same change. ADR-0001 has no named guard: its property (the core returns decisions and writes nothing) is exercised by `test_core.py` and asserted in `test_public_api.py`, and a structural guard (an AST walk that `episteme.core` imports neither `episteme.memory` nor `sqlite3`) is the cheap way to close that when someone next touches the tests.
+Each of the four accepted decisions has a test that fails the moment it is breached, and a new ADR gets its guard test in the same change.
 
-1. **ADR-0001, side-effect-free core** — `EpistemicCore` evaluates and returns decisions only; callers orchestrate writes through memory afterwards.
+1. **ADR-0001, side-effect-free core** — `EpistemicCore` evaluates and returns decisions only; callers orchestrate writes through memory afterwards. Guarded structurally in `test_core.py` by an AST walk asserting `episteme.core` imports none of `episteme.memory`, `episteme.experience` or `sqlite3` (added 2026-10-19, closing the gap this file recorded since 2026-10-06; widen its `FORBIDDEN` set if new storage routes appear). `test_public_api.py` keeps the documented contract that the core never raises.
 2. **ADR-0002, append-only revision memory** — every belief change appends an immutable revision; guarded by `test_memory.py::test_beliefs_never_deleted`.
 3. **ADR-0003, language-interface write isolation** — belief mutations flow only through core→memory, never from language output; guarded structurally in `test_interface.py` by an AST walk asserting `episteme.interface` imports neither `episteme.core` nor `episteme.memory` (widen its `FORBIDDEN` set if new writable modules appear).
 4. **ADR-0004, population synthesis is cited structure, never interpretation** — the synthesis reports clusters, positions, support and citations, produces OPINION claims and no beliefs, and generates no interpretation; guarded in `test_population.py` by an AST walk asserting no function returns an `Interpretation` and that the module imports neither `core` nor `memory`, and by the refusal of an unsigned `Interpretation`.
@@ -54,7 +54,7 @@ Dermot's direction, 2026-10-11: the account-wide split recorded in `star-rangers
 
 - **Haiku: reading and trivial fixes.** Read-only searches, summarising a failing CI log, `check_docs.py` drift, and simple `ruff` fixes. The coverage gate, `ruff`, `mypy` and the doc check catch its mistakes.
 - **Sonnet: code and tests.** Logic changes and new tests, including tests that raise the coverage ratchet. A test that merely passes is not necessarily one that checks the right thing, which is why this is not Haiku's.
-- **Opus: the protected parts.** `AGENTS.md`'s epistemic rules, the four ADRs, and their guard tests in `test_memory.py`, `test_interface.py` and `test_population.py`. No model below Opus edits these, even where a gate would catch the mistake.
+- **Opus: the protected parts.** `AGENTS.md`'s epistemic rules, the four ADRs, and their guard tests in `test_core.py`, `test_memory.py`, `test_interface.py` and `test_population.py`. No model below Opus edits these, even where a gate would catch the mistake.
 - **Opus reviews and approves** a Haiku or Sonnet subagent's diff, and it merges when CI is green. Opus escalates where a change needs a judgement it should not make alone: to Fable where one is available, otherwise to Dermot directly as choices (Dermot, 2026-10-11). Haiku may also work under a Sonnet subagent, its searches and summaries feeding Sonnet's job as input; approval still comes from Opus, never from Sonnet.
 - **Chrome extension:** Opus for anything that signs in, submits or posts; Sonnet for read-only browsing; never Haiku. The extension acts in Dermot's own Chrome with his sign-ins, and a web page can carry text written to steer the model.
 
@@ -102,8 +102,9 @@ shared is stated exactly.
   ratchet at the measured baseline (`swarm`, `careful-memory`, `world-model`,
   `foundation-model`, `shadow-architect`, `visual-llm`); five keep
   architecture decision records (`swarm`, `careful-memory`, `world-model`,
-  `shadow-architect`, the ADM); `swarm` guards three of its four with a named
-  test, `shadow-architect` guards one, and the others say in their own
+  `shadow-architect`, the ADM); `swarm` guards all four of its ADRs with a named
+  test (since 2026-10-19; `star-rangers`' map still says three and is a
+  follow-up there), `shadow-architect` guards one, and the others say in their own
   `CLAUDE.md` how far tests reach their decisions. When a
   convention here needs changing, those are the reference for how it is done
   in the account, and a change to the convention itself is worth landing in
