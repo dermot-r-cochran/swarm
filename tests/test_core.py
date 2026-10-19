@@ -7,10 +7,16 @@ Validates:
   - Update eligibility (evidence required, reliability threshold, delta cap)
   - Adversarial pressure rejection
   - Belief state resolution
+  - The module has no import path to storage at all (ADR-0001)
 """
+
+import ast
+from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
+import episteme.core
 from episteme.core import EpistemicCore
 from episteme.models import Belief, BeliefState, BeliefType, Evidence
 
@@ -277,3 +283,52 @@ class TestConfidenceComputation:
         e = make_evidence(reliability=0.85)
         decision = core.evaluate_update(b, e, proposed_confidence=0.7)
         assert decision.eligible is False
+
+
+class TestSideEffectFree:
+    """
+    ADR-0001 as a structural property rather than a reading of the code.
+
+    The tests above exercise the core's decisions, and ``test_public_api.py``
+    asserts the documented contract that it never raises; neither would
+    notice a method that quietly persisted its decision. What makes the
+    decision hold is that ``episteme.core`` has nothing to write *through*:
+    it imports only ``episteme.models``. Assert that directly, the same way
+    ``test_interface.py`` guards ADR-0003 and ``test_population.py`` guards
+    ADR-0004, so the invariant fails the moment a storage import appears,
+    whatever the method is called.
+
+    ``sqlite3`` is forbidden as well as the package's own storage modules
+    because it is the one route to disk the package already uses, and the
+    obvious one to reach for without going through ``EpistemicMemory``.
+    ``episteme.experience`` is forbidden because it imports memory, so an
+    import of it would be a write path at one remove.
+    """
+
+    FORBIDDEN: ClassVar[set[str]] = {"episteme.memory", "episteme.experience", "sqlite3"}
+
+    @staticmethod
+    def _imported_modules(module) -> set[str]:
+        """Every module named by an import in *module*, at any nesting depth.
+
+        Walks the AST rather than inspecting the imported module object, so
+        a deferred import inside a function body is caught too.
+        """
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        found: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                found.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                found.add(node.module)
+        return found
+
+    def test_core_does_not_import_storage(self):
+        imported = self._imported_modules(episteme.core)
+        breaches = imported & self.FORBIDDEN
+        assert not breaches, (
+            "episteme.core must have no import path to storage (ADR-0001), "
+            f"but imports: {sorted(breaches)}. The core evaluates and returns "
+            "an UpdateDecision; callers orchestrate writes through "
+            "EpistemicMemory afterwards."
+        )

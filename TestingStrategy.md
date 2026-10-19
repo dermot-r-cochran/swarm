@@ -14,7 +14,7 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface), 141 tests total:
+exported surface), 142 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -22,7 +22,11 @@ exported surface), 141 tests total:
 - `test_core.py` — `EpistemicCore`'s update eligibility, counter-evidence
   handling, confidence revision arithmetic, and adversarial-pressure
   rejection (justifications resting on language/repetition/consensus rather
-  than evidence are refused).
+  than evidence are refused), and **ADR-0001 (side-effect-free core)**,
+  enforced structurally since 2026-10-19 by the same AST walk as ADR-0003:
+  `episteme.core` imports none of `episteme.memory`, `episteme.experience`
+  or `sqlite3`, so a write path fails CI the moment it is imported, at any
+  nesting depth. Its `FORBIDDEN` set is the place to widen.
 - `test_memory.py` — the append-only store: idempotent evidence writes,
   duplicate-belief rejection, revision history appending with previous state
   preserved, and `test_beliefs_never_deleted` — the direct guard on
@@ -100,7 +104,8 @@ framework (AGENTS.md principle 10).
 ## Extending
 
 - **A new ADR gets a guard test in the same change** — the pattern is
-  ADR-0002/`test_beliefs_never_deleted` and ADR-0003/the AST import walk:
+  ADR-0002/`test_beliefs_never_deleted` and the AST import walk shared by
+  ADR-0001, ADR-0003 and ADR-0004:
   encode the decision so a breach fails CI, not a code review.
 - New module → its own `tests/test_<module>.py`, and the coverage ratchet
   rises with it.
