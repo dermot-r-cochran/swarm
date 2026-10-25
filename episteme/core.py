@@ -5,6 +5,7 @@ Immutable ruleset that governs:
   - Belief typing enforcement
   - Confidence bound validation
   - Update eligibility determination
+  - The Beta posterior a belief's confidence is the mean of (ADR-0005)
 
 The core is intentionally side-effect-free.  It accepts data, applies
 rules, and returns decisions—it never writes to storage.  All callers
@@ -261,23 +262,62 @@ class EpistemicCore:
             reason="Counter-evidence meets threshold; belief should be disputed.",
         )
 
+    def compute_posterior(
+        self,
+        belief: Belief,
+        evidence: Evidence,
+        *,
+        supporting: bool,
+    ) -> tuple[float, float]:
+        """
+        Return the belief's ``(alpha, beta)`` after applying *evidence*.
+
+        The Beta update of ADR-0005: supporting evidence adds its reliability
+        to ``alpha``, counter-evidence adds it to ``beta``, and confidence is
+        the mean ``alpha / (alpha + beta)``. Counter-evidence therefore
+        lowers confidence by the same rule that supporting evidence raises
+        it.
+
+        The weight added is capped so the mean moves by no more than
+        ``max_confidence_delta``: a belief resting on little evidence cannot
+        be swung further than that by one record, and the counts stay
+        consistent with the confidence they produce.
+
+        The caller determines the direction of the evidence; eligibility is
+        a separate decision (``evaluate_update`` and
+        ``evaluate_counter_evidence``).
+        """
+        alpha, beta = belief.alpha, belief.beta
+        if alpha is None or beta is None:
+            # Belief.__post_init__ always sets both; only a mutated object
+            # lacks them, and guessing a prior for it would hide the fault.
+            raise ValueError(f"Belief {belief.id!r} has no alpha/beta counts.")
+        total = alpha + beta
+        # The mean moves by weight * other / (total * (total + weight)), where
+        # "other" is the count on the side the evidence does not add to. It
+        # reaches max_confidence_delta at the weight below; when other is no
+        # more than delta * total, no finite weight can move it that far.
+        other = beta if supporting else alpha
+        weight = evidence.reliability
+        delta = self._max_confidence_delta
+        if other > delta * total:
+            weight = min(weight, delta * total * total / (other - delta * total))
+        if supporting:
+            return alpha + weight, beta
+        return alpha, beta + weight
+
     def compute_revised_confidence(
         self,
         belief: Belief,
         evidence: Evidence,
     ) -> float:
         """
-        Compute a new confidence value after applying *evidence*.
+        Return the confidence after applying *evidence* as supporting.
 
-        Uses a simple Bayesian-inspired update:
-          new_confidence = old + evidence.reliability * (1 - old)   if supporting
-          new_confidence = old * (1 - evidence.reliability)          if opposing
-
-        The caller is responsible for determining the direction of evidence.
-        This helper treats the evidence as *supporting*.
+        The mean of :meth:`compute_posterior` with ``supporting=True``.
         """
-        new_conf = belief.confidence + evidence.reliability * (1.0 - belief.confidence)
-        return min(1.0, max(0.0, new_conf))
+        alpha, beta = self.compute_posterior(belief, evidence, supporting=True)
+        return alpha / (alpha + beta)
 
     def check_adversarial_pressure(
         self,

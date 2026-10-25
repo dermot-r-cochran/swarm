@@ -332,3 +332,56 @@ class TestSideEffectFree:
             "an UpdateDecision; callers orchestrate writes through "
             "EpistemicMemory afterwards."
         )
+
+
+class TestBetaPosterior:
+    """ADR-0005: the Beta update, symmetric for and against, delta-capped."""
+
+    def test_supporting_evidence_adds_its_reliability_to_alpha(self):
+        core = EpistemicCore()
+        b = make_belief(confidence=0.5)
+        alpha, beta = core.compute_posterior(b, make_evidence(reliability=0.6), supporting=True)
+        assert (alpha, beta) == pytest.approx((1.6, 1.0))
+
+    def test_counter_evidence_adds_its_reliability_to_beta_and_lowers_confidence(self):
+        core = EpistemicCore()
+        b = make_belief(confidence=0.5)
+        alpha, beta = core.compute_posterior(b, make_evidence(reliability=0.6), supporting=False)
+        assert (alpha, beta) == pytest.approx((1.0, 1.6))
+        assert alpha / (alpha + beta) < b.confidence
+
+    @pytest.mark.parametrize("supporting", [True, False])
+    @pytest.mark.parametrize("confidence", [0.0, 0.05, 0.3, 0.5, 0.7, 0.95, 1.0])
+    @pytest.mark.parametrize("reliability", [0.5, 0.8, 1.0])
+    def test_one_record_never_moves_confidence_beyond_the_cap(
+        self, supporting, confidence, reliability
+    ):
+        core = EpistemicCore(max_confidence_delta=0.1)
+        b = make_belief(confidence=confidence)
+        alpha, beta = core.compute_posterior(
+            b, make_evidence(reliability=reliability), supporting=supporting
+        )
+        assert abs(alpha / (alpha + beta) - b.confidence) <= 0.1 + 1e-12
+
+    def test_cap_reduces_the_weight_rather_than_the_mean_alone(self):
+        # At confidence 0 a fully reliable record would move the mean by a
+        # third; with a 0.1 cap the weight shrinks so counts and mean agree.
+        core = EpistemicCore(max_confidence_delta=0.1)
+        b = make_belief(confidence=0.0)
+        alpha, beta = core.compute_posterior(b, make_evidence(reliability=1.0), supporting=True)
+        assert alpha < 1.0
+        assert alpha / (alpha + beta) == pytest.approx(0.1)
+
+    def test_compute_revised_confidence_is_the_supporting_posterior_mean(self):
+        core = EpistemicCore()
+        b = make_belief(confidence=0.5)
+        e = make_evidence(reliability=0.6)
+        alpha, beta = core.compute_posterior(b, e, supporting=True)
+        assert core.compute_revised_confidence(b, e) == pytest.approx(alpha / (alpha + beta))
+
+    def test_belief_without_counts_fails_loudly(self):
+        core = EpistemicCore()
+        b = make_belief()
+        b.beta = None
+        with pytest.raises(ValueError, match="no alpha/beta"):
+            core.compute_posterior(b, make_evidence(), supporting=True)

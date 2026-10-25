@@ -15,3 +15,4 @@ implementation in this repository.
 - [ADR-0002: Use append-only revision logging in SQLite memory](0002-append-only-revision-memory.md) — Accepted
 - [ADR-0003: Keep language interface write-isolated from belief storage](0003-language-interface-write-isolation.md) — Accepted
 - [ADR-0004: Population synthesis is cited structure, never interpretation](0004-population-synthesis-is-structure-not-interpretation.md) — Accepted
+- [ADR-0005: Belief confidence is the mean of a reliability-weighted Beta posterior](0005-beta-posterior-confidence.md) — Accepted

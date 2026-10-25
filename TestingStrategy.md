@@ -14,11 +14,18 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface), 142 tests total:
+exported surface), 205 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
-  auto-generated ids, UTC timestamps.
+  auto-generated ids, UTC timestamps; and **ADR-0005 (Beta posterior
+  confidence)**: a new belief's prior at its confidence, and the guard
+  `test_confidence_cannot_be_asserted_apart_from_counts` — a confidence that
+  is not the mean of its counts is refused. Its twin on the store is
+  `test_memory.py::TestBetaCounts::test_confidence_has_no_write_path_of_its_own`
+  (revise_belief takes counts and no confidence parameter), and
+  `test_core.py::TestBetaPosterior` checks the update and that one record never
+  moves confidence beyond `max_confidence_delta` across a grid of priors.
 - `test_core.py` — `EpistemicCore`'s update eligibility, counter-evidence
   handling, confidence revision arithmetic, and adversarial-pressure
   rejection (justifications resting on language/repetition/consensus rather
@@ -104,8 +111,8 @@ framework (AGENTS.md principle 10).
 ## Extending
 
 - **A new ADR gets a guard test in the same change** — the pattern is
-  ADR-0002/`test_beliefs_never_deleted` and the AST import walk shared by
-  ADR-0001, ADR-0003 and ADR-0004:
+  ADR-0002/`test_beliefs_never_deleted`, the AST import walk shared by
+  ADR-0001, ADR-0003 and ADR-0004, and ADR-0005's pair of refusals:
   encode the decision so a breach fails CI, not a code review.
 - New module → its own `tests/test_<module>.py`, and the coverage ratchet
   rises with it.

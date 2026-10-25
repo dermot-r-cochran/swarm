@@ -222,7 +222,13 @@ class ExperienceLoop:
             )
 
         if supporting:
-            new_conf = self._core.compute_revised_confidence(belief, evidence)
+            # The posterior already respects max_confidence_delta
+            # (compute_posterior caps the weight), so the counts written
+            # below are exactly the ones the confidence is the mean of.
+            new_alpha, new_beta = self._core.compute_posterior(
+                belief, evidence, supporting=True
+            )
+            new_conf = new_alpha / (new_alpha + new_beta)
             decision = self._core.evaluate_update(belief, evidence, new_conf)
 
             if not decision.eligible:
@@ -233,12 +239,6 @@ class ExperienceLoop:
                     evidence_id=evidence.id,
                 )
 
-            final_conf = (
-                decision.suggested_confidence
-                if decision.suggested_confidence is not None
-                else new_conf
-            )
-
             new_evidence_ids = list(belief.evidence_ids) + [evidence.id]
             has_counter = len(belief.counter_evidence_ids) > 0
             new_state = self._core.resolve_state(
@@ -248,7 +248,8 @@ class ExperienceLoop:
             self._memory.revise_belief(
                 belief_id,
                 evidence,
-                new_confidence=final_conf,
+                new_alpha=new_alpha,
+                new_beta=new_beta,
                 new_state=new_state,
                 # ids are auto-filled in __post_init__ and never None at
                 # runtime; retyping the optional-id pattern is a separate
@@ -283,10 +284,18 @@ class ExperienceLoop:
         new_state = self._core.resolve_state(
             belief, has_supporting=has_supporting, has_counter=True
         )
+        # Counter-evidence lowers confidence by the same Beta rule that
+        # supporting evidence raises it (ADR-0005); the disagreement is
+        # still kept, in the state and in the counter-evidence ids.
+        new_alpha, new_beta = self._core.compute_posterior(
+            belief, evidence, supporting=False
+        )
 
         self._memory.revise_belief(
             belief_id,
             evidence,
+            new_alpha=new_alpha,
+            new_beta=new_beta,
             new_state=new_state,
             # Same optional-id caveat as the supporting path above.
             new_counter_evidence_ids=new_counter_ids,  # type: ignore[arg-type]

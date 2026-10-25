@@ -151,3 +151,52 @@ class TestBeliefRevision:
             reason="test",
         )
         assert r.revised_at.tzinfo is not None
+
+
+class TestBetaConfidence:
+    """ADR-0005: confidence is the mean of reliability-weighted Beta counts."""
+
+    def test_new_belief_starts_from_a_prior_at_its_confidence(self):
+        b = Belief(statement="x", type=BeliefType.THEORY, confidence=0.8, domain="d")
+        assert b.alpha == pytest.approx(1.6)
+        assert b.beta == pytest.approx(0.4)
+        assert b.evidence_weight == pytest.approx(0.0)
+
+    def test_half_is_the_uniform_prior(self):
+        b = Belief(statement="x", type=BeliefType.THEORY, confidence=0.5, domain="d")
+        assert (b.alpha, b.beta) == (1.0, 1.0)
+
+    def test_counts_given_with_matching_confidence_are_kept(self):
+        b = Belief(
+            statement="x", type=BeliefType.THEORY, confidence=0.75, domain="d",
+            alpha=3.0, beta=1.0,
+        )
+        assert b.confidence == pytest.approx(0.75)
+        assert b.evidence_weight == pytest.approx(2.0)
+
+    def test_confidence_cannot_be_asserted_apart_from_counts(self):
+        # The ADR-0005 guard: a confidence that is not the mean of the
+        # counts is refused, so confidence can never be written on its own.
+        with pytest.raises(ValueError, match="derived from the counts"):
+            Belief(
+                statement="x", type=BeliefType.THEORY, confidence=0.9, domain="d",
+                alpha=1.0, beta=1.0,
+            )
+
+    def test_one_count_without_the_other_rejected(self):
+        with pytest.raises(ValueError, match="together"):
+            Belief(statement="x", type=BeliefType.THEORY, confidence=0.5, domain="d", alpha=1.0)
+
+    @pytest.mark.parametrize(("alpha", "beta"), [(-1.0, 1.0), (1.0, -0.5), (0.0, 0.0)])
+    def test_invalid_counts_rejected(self, alpha, beta):
+        with pytest.raises(ValueError, match="non-negative"):
+            Belief(
+                statement="x", type=BeliefType.THEORY, confidence=0.5, domain="d",
+                alpha=alpha, beta=beta,
+            )
+
+    def test_mutated_belief_without_counts_fails_loudly(self):
+        b = Belief(statement="x", type=BeliefType.THEORY, confidence=0.5, domain="d")
+        b.alpha = None
+        with pytest.raises(ValueError, match="no alpha/beta"):
+            _ = b.evidence_weight
