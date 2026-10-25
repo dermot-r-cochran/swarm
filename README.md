@@ -11,6 +11,16 @@ where:
 - beliefs are explicit typed objects with confidence and lifecycle state
   (`tests/test_models.py::TestBelief::test_valid_belief_creation`,
   `tests/test_core.py::TestBeliefStateResolution::test_both_yields_disputed`),
+- confidence is the mean of a reliability-weighted Beta(α, β) posterior, so
+  evidence against a belief lowers it by the same rule that evidence for it
+  raises it, and the weight of evidence is kept beside it (ADR-0005:
+  `tests/test_experience.py::TestBetaConfidenceInTheLoop::test_counter_evidence_lowers_confidence`,
+  `::test_weight_of_evidence_is_kept_beside_confidence`; that confidence cannot
+  be written apart from its counts:
+  `tests/test_models.py::TestBetaConfidence::test_confidence_cannot_be_asserted_apart_from_counts`
+  and `tests/test_memory.py::TestBetaCounts::test_confidence_has_no_write_path_of_its_own`;
+  whether the confidence is calibrated against outcomes is unknown, as the
+  repository holds no outcome data),
 - evidence is validated before it can influence beliefs
   (`tests/test_core.py::TestUpdateEligibility::test_ineligible_low_reliability`,
   `tests/test_experience.py::TestExperienceLoopBasic::test_low_reliability_does_not_revise`),

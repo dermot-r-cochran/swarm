@@ -329,3 +329,39 @@ class TestLongHorizonStability:
         updated = mem.get_belief(b.id)
         assert updated.confidence == confidence_after_one
         assert updated.evidence_ids == [first[0].evidence_id]
+
+
+class TestBetaConfidenceInTheLoop:
+    """ADR-0005 through the real loop: evidence against lowers confidence."""
+
+    def test_counter_evidence_lowers_confidence(self, setup):
+        _core, mem, loop = setup
+        b = make_belief(confidence=0.5)
+        mem.add_belief(b)
+        loop.observe_outcome(
+            content="Support.", source="lab", reliability=0.9,
+            belief_ids=[b.id], domain="physics", supporting=True,
+        )
+        after_support = mem.get_belief(b.id).confidence
+        loop.observe_outcome(
+            content="Contradiction.", source="field", reliability=0.9,
+            belief_ids=[b.id], domain="physics", supporting=False,
+        )
+        updated = mem.get_belief(b.id)
+        assert updated.confidence < after_support
+        assert updated.state == BeliefState.DISPUTED
+
+    def test_weight_of_evidence_is_kept_beside_confidence(self, setup):
+        _core, mem, loop = setup
+        b = make_belief(confidence=0.5)
+        mem.add_belief(b)
+        for i, supporting in enumerate([True, False, True, False]):
+            loop.observe_outcome(
+                content=f"Record {i}.", source=f"s{i}", reliability=0.8,
+                belief_ids=[b.id], domain="physics", supporting=supporting,
+            )
+        updated = mem.get_belief(b.id)
+        # Equal evidence each way leaves confidence where it started but
+        # records how much evidence it now rests on.
+        assert updated.confidence == pytest.approx(0.5)
+        assert updated.evidence_weight == pytest.approx(3.2)

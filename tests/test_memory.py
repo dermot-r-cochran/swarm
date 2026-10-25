@@ -9,7 +9,9 @@ Validates:
   - Missing belief handling
 """
 
+import inspect
 import json
+import sqlite3
 import threading
 
 import pytest
@@ -27,6 +29,11 @@ def make_belief(**kwargs) -> Belief:
     }
     defaults.update(kwargs)
     return Belief(**defaults)
+
+
+def counts(confidence: float) -> dict:
+    """revise_belief arguments whose Beta mean is *confidence* (ADR-0005)."""
+    return {"new_alpha": 2 * confidence, "new_beta": 2 * (1 - confidence)}
 
 
 def make_evidence(**kwargs) -> Evidence:
@@ -125,7 +132,7 @@ class TestBeliefRevision:
         mem.revise_belief(
             b.id,
             e,
-            new_confidence=0.75,
+            **counts(0.75),
             reason="Strong evidence received.",
         )
 
@@ -140,8 +147,8 @@ class TestBeliefRevision:
         mem.add_evidence(e1)
         mem.add_evidence(e2)
 
-        mem.revise_belief(b.id, e1, new_confidence=0.6, reason="First revision")
-        mem.revise_belief(b.id, e2, new_confidence=0.7, reason="Second revision")
+        mem.revise_belief(b.id, e1, **counts(0.6), reason="First revision")
+        mem.revise_belief(b.id, e2, **counts(0.7), reason="Second revision")
 
         revisions = mem.get_revisions(b.id)
         assert len(revisions) == 2
@@ -155,7 +162,7 @@ class TestBeliefRevision:
         mem.add_evidence(e)
 
         revision = mem.revise_belief(
-            b.id, e, new_confidence=0.8, reason="evidence"
+            b.id, e, **counts(0.8), reason="evidence"
         )
 
         assert revision.previous_state["confidence"] == pytest.approx(0.5)
@@ -165,7 +172,7 @@ class TestBeliefRevision:
         e = make_evidence()
         mem.add_evidence(e)
         with pytest.raises(ValueError, match="not found"):
-            mem.revise_belief("nonexistent", e, new_confidence=0.5, reason="x")
+            mem.revise_belief("nonexistent", e, **counts(0.5), reason="x")
 
     def test_revise_state(self, mem):
         b = make_belief()
@@ -194,7 +201,7 @@ class TestBeliefRevision:
         for i in range(5):
             e = make_evidence(context_hash=f"ctx{i}", summary=f"obs{i}")
             mem.add_evidence(e)
-            mem.revise_belief(b.id, e, new_confidence=0.1 + 0.1 * i, reason="inc")
+            mem.revise_belief(b.id, e, **counts(0.1 + 0.1 * i), reason="inc")
 
         assert mem.get_belief(b.id) is not None
         assert len(mem.get_revisions(b.id)) == 5
@@ -211,7 +218,7 @@ class TestConcurrencyAndContracts:
         mem.add_belief(b)
         stray = make_evidence(context_hash="ctx_never_persisted")
         with pytest.raises(ValueError, match="not persisted"):
-            mem.revise_belief(b.id, stray, new_confidence=0.5, reason="x")
+            mem.revise_belief(b.id, stray, **counts(0.5), reason="x")
         # The failed transaction rolled back cleanly: no revision recorded.
         assert mem.get_revisions(b.id) == []
 
@@ -256,7 +263,7 @@ class TestConcurrencyAndContracts:
         def revise(i: int) -> None:
             barrier.wait()
             mem.revise_belief(
-                b.id, evidences[i], new_confidence=(i + 1) / 100, reason=f"r{i}"
+                b.id, evidences[i], **counts((i + 1) / 100), reason=f"r{i}"
             )
 
         threads = [threading.Thread(target=revise, args=(i,)) for i in range(n_threads)]
@@ -269,3 +276,68 @@ class TestConcurrencyAndContracts:
         assert len(revisions) == n_threads
         snapshots = [json.dumps(r.previous_state, sort_keys=True) for r in revisions]
         assert len(set(snapshots)) == n_threads
+
+
+class TestBetaCounts:
+    """ADR-0005: the store keeps the counts, and revises confidence only by them."""
+
+    def test_counts_round_trip(self, mem):
+        b = make_belief(confidence=0.75, alpha=3.0, beta=1.0)
+        mem.add_belief(b)
+        fetched = mem.get_belief(b.id)
+        assert (fetched.alpha, fetched.beta) == pytest.approx((3.0, 1.0))
+        assert fetched.confidence == pytest.approx(0.75)
+
+    def test_revision_snapshots_carry_counts(self, mem):
+        b = make_belief(confidence=0.5)
+        e = make_evidence()
+        mem.add_belief(b)
+        mem.add_evidence(e)
+        revision = mem.revise_belief(b.id, e, new_alpha=1.95, new_beta=1.0, reason="r")
+        assert revision.previous_state["alpha"] == pytest.approx(1.0)
+        assert revision.new_state["alpha"] == pytest.approx(1.95)
+        assert revision.new_state["confidence"] == pytest.approx(1.95 / 2.95)
+
+    def test_one_count_without_the_other_rejected(self, mem):
+        b = make_belief()
+        e = make_evidence()
+        mem.add_belief(b)
+        mem.add_evidence(e)
+        with pytest.raises(ValueError, match="together"):
+            mem.revise_belief(b.id, e, new_alpha=2.0, reason="r")
+
+    def test_confidence_has_no_write_path_of_its_own(self):
+        # The ADR-0005 guard on the store: revise_belief takes counts and has
+        # no confidence parameter, so confidence cannot be set apart from them.
+        params = inspect.signature(EpistemicMemory.revise_belief).parameters
+        assert "new_alpha" in params
+        assert "new_beta" in params
+        assert not any("confidence" in name for name in params)
+
+    def test_database_from_before_the_counts_still_opens(self, tmp_path):
+        db = tmp_path / "old.db"
+        conn = sqlite3.connect(db)
+        conn.executescript(
+            """
+            CREATE TABLE beliefs (
+                id TEXT PRIMARY KEY, statement TEXT NOT NULL, type TEXT NOT NULL,
+                confidence REAL NOT NULL, domain TEXT NOT NULL,
+                evidence_ids TEXT NOT NULL DEFAULT '[]',
+                counter_evidence_ids TEXT NOT NULL DEFAULT '[]',
+                state TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL
+            );
+            INSERT INTO beliefs (id, statement, type, confidence, domain, created_at)
+            VALUES ('old1', 'Old belief.', 'FACT', 0.8, 'd', '2026-01-01T00:00:00+00:00');
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        with EpistemicMemory(db) as store:
+            old = store.get_belief("old1")
+            assert old.confidence == pytest.approx(0.8)
+            assert (old.alpha, old.beta) == pytest.approx((1.6, 0.4))
+            e = make_evidence()
+            store.add_evidence(e)
+            store.revise_belief("old1", e, new_alpha=2.6, new_beta=0.4, reason="r")
+            assert store.get_belief("old1").confidence == pytest.approx(2.6 / 3.0)

@@ -20,7 +20,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
 
-from episteme.models import Belief, BeliefRevision, BeliefState, BeliefType, Evidence
+from episteme.models import (
+    Belief,
+    BeliefRevision,
+    BeliefState,
+    BeliefType,
+    Evidence,
+    belief_confidence,
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS beliefs (
@@ -32,7 +39,9 @@ CREATE TABLE IF NOT EXISTS beliefs (
     evidence_ids        TEXT NOT NULL DEFAULT '[]',
     counter_evidence_ids TEXT NOT NULL DEFAULT '[]',
     state       TEXT NOT NULL DEFAULT 'ACTIVE',
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    alpha       REAL,
+    beta        REAL
 );
 
 CREATE TABLE IF NOT EXISTS evidence (
@@ -68,6 +77,10 @@ def _row_to_belief(row: sqlite3.Row) -> Belief:
         counter_evidence_ids=json.loads(row["counter_evidence_ids"]),
         state=BeliefState(row["state"]),
         created_at=datetime.fromisoformat(row["created_at"]),
+        # A row written before ADR-0005 has no counts; the Belief then
+        # derives its prior from the stored confidence.
+        alpha=row["alpha"],
+        beta=row["beta"],
     )
 
 
@@ -104,6 +117,8 @@ def _belief_to_dict(belief: Belief) -> dict:
         "counter_evidence_ids": belief.counter_evidence_ids,
         "state": belief.state.value,
         "created_at": belief.created_at.isoformat(),
+        "alpha": belief.alpha,
+        "beta": belief.beta,
     }
 
 
@@ -143,6 +158,13 @@ class EpistemicMemory:
 
     def _init_schema(self) -> None:
         self._conn.executescript(_SCHEMA)
+        # A database created before ADR-0005 lacks the count columns. Adding
+        # them leaves them NULL, and such a row is read back with its prior
+        # derived from its stored confidence: no row is rewritten.
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(beliefs)")}
+        for column in ("alpha", "beta"):
+            if column not in columns:
+                self._conn.execute(f"ALTER TABLE beliefs ADD COLUMN {column} REAL")
         self._conn.commit()
 
     @contextmanager
@@ -214,8 +236,9 @@ class EpistemicMemory:
                     """
                     INSERT INTO beliefs
                         (id, statement, type, confidence, domain,
-                         evidence_ids, counter_evidence_ids, state, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         evidence_ids, counter_evidence_ids, state, created_at,
+                         alpha, beta)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         belief.id,
@@ -227,6 +250,8 @@ class EpistemicMemory:
                         json.dumps(belief.counter_evidence_ids),
                         belief.state.value,
                         belief.created_at.isoformat(),
+                        belief.alpha,
+                        belief.beta,
                     ),
                 )
         except sqlite3.IntegrityError as exc:
@@ -264,7 +289,8 @@ class EpistemicMemory:
         belief_id: str,
         evidence: Evidence,
         *,
-        new_confidence: float | None = None,
+        new_alpha: float | None = None,
+        new_beta: float | None = None,
         new_state: BeliefState | None = None,
         new_evidence_ids: list[str] | None = None,
         new_counter_evidence_ids: list[str] | None = None,
@@ -276,6 +302,10 @@ class EpistemicMemory:
         The original belief row is updated in-place (reflecting current state),
         and an immutable BeliefRevision record is appended for full auditability.
 
+        Confidence is revised only through its counts (ADR-0005): pass
+        *new_alpha* and *new_beta* together, and the belief's confidence
+        becomes their mean. There is no way to set confidence on its own.
+
         Returns
         -------
         BeliefRevision
@@ -284,8 +314,9 @@ class EpistemicMemory:
         Raises
         ------
         ValueError
-            If the belief does not exist, or *evidence* has not been
-            persisted (``add_evidence()`` first).
+            If the belief does not exist, *evidence* has not been
+            persisted (``add_evidence()`` first), or only one of
+            *new_alpha* and *new_beta* is given.
         """
         # The lock spans the read as well as the write: two concurrent
         # revisions must serialise, or both would snapshot the same
@@ -294,7 +325,8 @@ class EpistemicMemory:
             return self._revise_belief_locked(
                 belief_id,
                 evidence,
-                new_confidence=new_confidence,
+                new_alpha=new_alpha,
+                new_beta=new_beta,
                 new_state=new_state,
                 new_evidence_ids=new_evidence_ids,
                 new_counter_evidence_ids=new_counter_evidence_ids,
@@ -306,7 +338,8 @@ class EpistemicMemory:
         belief_id: str,
         evidence: Evidence,
         *,
-        new_confidence: float | None = None,
+        new_alpha: float | None = None,
+        new_beta: float | None = None,
         new_state: BeliefState | None = None,
         new_evidence_ids: list[str] | None = None,
         new_counter_evidence_ids: list[str] | None = None,
@@ -319,8 +352,12 @@ class EpistemicMemory:
         previous_state = _belief_to_dict(belief)
 
         # Apply updates
-        if new_confidence is not None:
-            belief.confidence = new_confidence
+        if (new_alpha is None) != (new_beta is None):
+            raise ValueError("new_alpha and new_beta must be given together.")
+        if new_alpha is not None and new_beta is not None:
+            belief.confidence = belief_confidence(new_alpha, new_beta)
+            belief.alpha = new_alpha
+            belief.beta = new_beta
         if new_state is not None:
             belief.state = new_state
         if new_evidence_ids is not None:
@@ -367,6 +404,8 @@ class EpistemicMemory:
             """
             UPDATE beliefs SET
                 confidence = ?,
+                alpha = ?,
+                beta = ?,
                 state = ?,
                 evidence_ids = ?,
                 counter_evidence_ids = ?
@@ -374,6 +413,8 @@ class EpistemicMemory:
             """,
             (
                 belief.confidence,
+                belief.alpha,
+                belief.beta,
                 belief.state.value,
                 json.dumps(belief.evidence_ids),
                 json.dumps(belief.counter_evidence_ids),
