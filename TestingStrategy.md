@@ -14,7 +14,7 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface), 205 tests total:
+exported surface), 208 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -37,7 +37,14 @@ exported surface), 205 tests total:
 - `test_memory.py` — the append-only store: idempotent evidence writes,
   duplicate-belief rejection, revision history appending with previous state
   preserved, and `test_beliefs_never_deleted` — the direct guard on
-  **ADR-0002 (append-only revision memory)**.
+  **ADR-0002 (append-only revision memory)**. `TestOnDisk` (added
+  2026-10-30) runs the store on a file under `tmp_path`, which `:memory:`
+  cannot show: beliefs, evidence and revisions read back after close and
+  reopen with the file still in WAL mode; a second `sqlite3` connection
+  counting one more revision after each `revise_belief`, never fewer; and a
+  revision that fails mid-write leaving the belief row, the revision table
+  and the evidence table exactly as they were when the file is reopened.
+  `TestBetaCounts` also opens a file built with the pre-ADR-0005 schema.
 - `test_experience.py` — the observe→revise loop end to end, including the
   anti-drift guards, each driven through the real loop path:
   `test_no_drift_without_evidence` (turns that record observations naming no
@@ -120,10 +127,11 @@ framework (AGENTS.md principle 10).
 
 ## Known gaps (candidates for next)
 
-- The suite runs `EpistemicMemory` against `:memory:` only. An on-disk SQLite
-  test would cover what that cannot: WAL persistence across close/reopen,
-  rollback on a failure mid-`revise_belief`, and the append-only guarantee
-  observed from a second connection.
+- `TestOnDisk` covers one process writing a file and one other connection
+  reading it. Two `EpistemicMemory` instances on the same file from two
+  processes, each with its own lock, are untested: the process-wide
+  `RLock` cannot serialise them, so what SQLite's own locking makes of two
+  concurrent `revise_belief` calls on one belief is unknown.
 - The two anti-drift tests are fixed-case; a `hypothesis` property suite over
   `compute_revised_confidence` / `check_adversarial_pressure` (confidence
   stays in [0, 1], no NaN, bounded movement per unit of evidence, repetition

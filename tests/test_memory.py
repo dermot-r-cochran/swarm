@@ -341,3 +341,80 @@ class TestBetaCounts:
             store.add_evidence(e)
             store.revise_belief("old1", e, new_alpha=2.6, new_beta=0.4, reason="r")
             assert store.get_belief("old1").confidence == pytest.approx(2.6 / 3.0)
+
+
+class TestOnDisk:
+    """The store on a file, which ``:memory:`` cannot show: what survives
+    close and reopen, what a second connection sees while the store writes,
+    and what a failed revision leaves behind. ADR-0002 promises a durable
+    trail; these are the tests that read it back from the disk."""
+
+    def test_beliefs_and_revisions_survive_close_and_reopen(self, tmp_path):
+        db = tmp_path / "episteme.db"
+        b = make_belief(confidence=0.5)
+        e = make_evidence()
+        with EpistemicMemory(db) as store:
+            store.add_belief(b)
+            store.add_evidence(e)
+            store.revise_belief(b.id, e, **counts(0.75), reason="before close")
+
+        with EpistemicMemory(db) as store:
+            fetched = store.get_belief(b.id)
+            assert fetched is not None
+            assert fetched.confidence == pytest.approx(0.75)
+            assert fetched.evidence_ids == b.evidence_ids
+            assert store.get_evidence(e.id) is not None
+            revisions = store.get_revisions(b.id)
+            assert [r.reason for r in revisions] == ["before close"]
+            assert revisions[0].previous_state["confidence"] == pytest.approx(0.5)
+            assert revisions[0].new_state["confidence"] == pytest.approx(0.75)
+
+        # The journal mode the store sets is a property of the file, so it
+        # is still WAL when the file is opened by anything else.
+        other = sqlite3.connect(db)
+        try:
+            assert other.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        finally:
+            other.close()
+
+    def test_second_connection_sees_every_revision_as_it_is_appended(self, tmp_path):
+        db = tmp_path / "episteme.db"
+        b = make_belief(confidence=0.1)
+        with EpistemicMemory(db) as store:
+            store.add_belief(b)
+            other = sqlite3.connect(db)
+            try:
+                for i in range(5):
+                    e = make_evidence(context_hash=f"ctx{i}", summary=f"obs{i}")
+                    store.add_evidence(e)
+                    store.revise_belief(b.id, e, **counts(0.1 + 0.1 * i), reason=f"r{i}")
+                    # Each revision is committed before revise_belief returns,
+                    # and the count only ever rises: nothing earlier was
+                    # replaced or removed to make room for it.
+                    (n_revisions,) = other.execute(
+                        "SELECT COUNT(*) FROM belief_revisions WHERE belief_id = ?", (b.id,)
+                    ).fetchone()
+                    assert n_revisions == i + 1
+                (n_beliefs,) = other.execute("SELECT COUNT(*) FROM beliefs").fetchone()
+                assert n_beliefs == 1
+            finally:
+                other.close()
+
+    def test_failed_revision_leaves_nothing_on_disk(self, tmp_path):
+        """revise_belief updates the belief row before it appends the
+        revision; when the append fails, the rollback must take the row
+        update with it, or the file would hold a change with no record."""
+        db = tmp_path / "episteme.db"
+        b = make_belief(confidence=0.5)
+        with EpistemicMemory(db) as store:
+            store.add_belief(b)
+            stray = make_evidence(context_hash="ctx_never_persisted")
+            with pytest.raises(ValueError, match="not persisted"):
+                store.revise_belief(b.id, stray, **counts(0.9), reason="x")
+
+        with EpistemicMemory(db) as store:
+            fetched = store.get_belief(b.id)
+            assert fetched is not None
+            assert fetched.confidence == pytest.approx(0.5)
+            assert store.get_revisions(b.id) == []
+            assert store.get_evidence(stray.id) is None

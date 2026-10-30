@@ -31,7 +31,9 @@ where:
   ADR-0001's guard),
 - revisions are persisted with immutable history for auditability
   (`tests/test_memory.py::TestBeliefRevision::test_beliefs_never_deleted`,
-  ADR-0002's guard, and `::test_revision_previous_state_preserved`; that a
+  ADR-0002's guard, and `::test_revision_previous_state_preserved`; that the
+  history is on disk after the store is closed and reopened:
+  `::TestOnDisk::test_beliefs_and_revisions_survive_close_and_reopen`; that a
   stored revision cannot be altered has no test yet).
 
 ## Repository layout
