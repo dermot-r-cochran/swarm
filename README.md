@@ -163,3 +163,9 @@ ruff check .
 Design decisions are tracked in markdown under:
 
 - `docs/adr/README.md`
+
+## Related
+
+- [careful-memory](https://github.com/dermot-r-cochran/careful-memory) is the nearest in subject: a per-user belief store with Beta(α, β) confidence, an append-only record and evidence-gated writes, implemented independently. ADR-0005 here follows its ADR-0001, and its `tests/test_bayesian_properties.py` cites the same two properties `tests/test_properties.py` pins.
+- [virtual-anthropology](https://github.com/dermot-r-cochran/virtual-anthropology) (The Archipelago) publishes the export `examples/archipelago_first_fork.py` reads; data crosses one way and no code is shared. [Voting](https://github.com/dermot-r-cochran/Voting) holds the design note, `docs/lot-then-vote.md`, that the population module serves.
+- How these and the author's other public repositories relate is kept in one map: [RELATED-REPOSITORIES.md](https://github.com/dermot-r-cochran/star-rangers/blob/main/RELATED-REPOSITORIES.md).
