@@ -15,7 +15,11 @@ where:
   evidence against a belief lowers it by the same rule that evidence for it
   raises it, and the weight of evidence is kept beside it (ADR-0005:
   `tests/test_experience.py::TestBetaConfidenceInTheLoop::test_counter_evidence_lowers_confidence`,
-  `::test_weight_of_evidence_is_kept_beside_confidence`; that confidence cannot
+  `::test_weight_of_evidence_is_kept_beside_confidence`; that one record moves
+  confidence by no more than the cap and never against its direction, for any
+  counts, searched by hypothesis:
+  `tests/test_properties.py::test_one_record_never_moves_confidence_beyond_the_cap`
+  and `::test_supporting_never_lowers_and_counter_never_raises`; that confidence cannot
   be written apart from its counts:
   `tests/test_models.py::TestBetaConfidence::test_confidence_cannot_be_asserted_apart_from_counts`
   and `tests/test_memory.py::TestBetaCounts::test_confidence_has_no_write_path_of_its_own`;

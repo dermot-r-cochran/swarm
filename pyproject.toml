@@ -21,6 +21,9 @@ dev = [
     # nobody has verified would be a claim about compatibility.
     "ruff>=0.6",
     "mypy>=1.10",
+    # Property-based tests (tests/test_properties.py), added 2026-10-30 at
+    # Dermot's direction. A floor, not a pin, for the same reason as ruff.
+    "hypothesis>=6.100",
 ]
 
 [tool.setuptools.packages.find]
