@@ -14,7 +14,8 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface), 208 tests total:
+exported surface and `test_properties.py` for the property suite), 210 tests
+total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -72,6 +73,14 @@ exported surface), 208 tests total:
   no function in `episteme.population` returns an `Interpretation` and that
   the module imports neither `episteme.core` nor `episteme.memory`, and the
   refusal of an unsigned or empty `Interpretation`.
+- `test_properties.py` (added 2026-10-30, Dermot's "Accept all four":
+  `hypothesis` in `[dev]` with a small property suite) — two `hypothesis`
+  properties of ADR-0005's update, searched rather than sampled at fixed
+  points: one record never moves confidence beyond `max_confidence_delta`
+  for any counts, reliability and cap, the result stays finite in [0, 1] and
+  its counts are ones a `Belief` accepts; and supporting evidence never
+  lowers confidence while counter-evidence never raises it. They generalise
+  `test_core.py::TestBetaPosterior`'s grid; they are not ADR guards.
 - `test_example_archipelago.py` — pins the shape `examples/archipelago_first_fork.py`
   reads from a `virtual-anthropology` export (a fixture with `dataset.json`
   and `governance_events.json` in that shape): votes cited to their
@@ -132,10 +141,12 @@ framework (AGENTS.md principle 10).
   processes, each with its own lock, are untested: the process-wide
   `RLock` cannot serialise them, so what SQLite's own locking makes of two
   concurrent `revise_belief` calls on one belief is unknown.
-- The two anti-drift tests are fixed-case; a `hypothesis` property suite over
-  `compute_revised_confidence` / `check_adversarial_pressure` (confidence
-  stays in [0, 1], no NaN, bounded movement per unit of evidence, repetition
-  never compounds) would generalise them.
+- The property suite (`test_properties.py`, 2026-10-30) covers the
+  confidence update: in [0, 1], no NaN, bounded movement per record, and
+  direction. Still fixed-case: `check_adversarial_pressure`, and repetition
+  never compounding through the loop
+  (`test_adversarial_repetition_does_not_drift_belief`), which a stateful
+  `hypothesis` test over `ExperienceLoop` could generalise.
 - Coverage sits at 100%, so the ratchet has no headroom left; the next
   raises come from new modules bringing their own tests, not from covering
   a backlog (`pytest --cov=episteme --cov-report=term-missing` confirms).
