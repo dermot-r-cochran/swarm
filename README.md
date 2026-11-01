@@ -49,6 +49,8 @@ where:
 - `episteme/experience.py` – observation-to-revision loop (`tests/test_experience.py`)
 - `episteme/population.py` – population synthesis: cited structure over many holders' positions
   (`tests/test_population.py`)
+- `examples/first_belief.py` – the core flow on one belief, from a fresh install
+  (`tests/test_example_first_belief.py::test_first_run_shows_the_flow_and_its_refusals`)
 - `examples/archipelago_first_fork.py` – the synthesis run over a published Archipelago export
   (`tests/test_example_archipelago.py::test_example_reads_an_export_and_cites_the_record`)
 - `tests/` – unit tests for all modules (`.github/scripts/check_docs.py` fails CI if a module
@@ -141,6 +143,22 @@ names a path that is gone or misses a module.
 cd <repository-root>
 python -m pip install -e ".[dev]"
 ```
+
+### First run
+
+```bash
+python examples/first_belief.py
+```
+
+One belief, four observations, and the trail they leave: a reliable
+supporting observation raises confidence; the same observation again is
+refused, because it is not new evidence; a rumour below the reliability
+threshold is refused; reliable evidence against lowers confidence and marks
+the belief DISPUTED; the report ends with every revision, the confidence
+before and after it, and the core's reason. Pass a file path to keep the
+store on disk and read it back with `EpistemicMemory`
+(`tests/test_example_first_belief.py::test_first_run_shows_the_flow_and_its_refusals`,
+`::test_first_run_on_disk_leaves_the_store_the_report_describes`).
 
 ## Development workflow
 

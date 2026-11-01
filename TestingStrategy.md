@@ -14,7 +14,7 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface and `test_properties.py` for the property suite), 210 tests
+exported surface and `test_properties.py` for the property suite), 212 tests
 total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
@@ -88,6 +88,13 @@ total:
   petitions parsed or refused loudly, goals as utterances. The example is
   outside `--cov=episteme`, so this is a smoke test of the crossing, not a
   coverage contributor.
+- `test_example_first_belief.py` (added 2026-11-01) — pins the README's
+  first run, `examples/first_belief.py`: its report shows two revisions
+  and two refusals in the stated order with the core's reasons, the
+  history is continuous (each revision starts where the last ended), and
+  a store the example is pointed at holds the one DISPUTED belief, its two
+  revisions and one evidence id on each side. Outside `--cov=episteme` for
+  the same reason as the Archipelago example.
 
 Run: `pytest` (config in `pyproject.toml`; `testpaths = ["tests"]`).
 
