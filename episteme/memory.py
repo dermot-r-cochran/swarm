@@ -63,6 +63,25 @@ CREATE TABLE IF NOT EXISTS belief_revisions (
     FOREIGN KEY (belief_id) REFERENCES beliefs(id),
     FOREIGN KEY (evidence_id) REFERENCES evidence(id)
 );
+
+-- ADR-0002: revisions and evidence are append-only. The triggers live in
+-- the file, like WAL, so they refuse a change from any connection, not
+-- only from this class.
+CREATE TRIGGER IF NOT EXISTS belief_revisions_no_update
+BEFORE UPDATE ON belief_revisions
+BEGIN SELECT RAISE(ABORT, 'belief_revisions is append-only (ADR-0002)'); END;
+
+CREATE TRIGGER IF NOT EXISTS belief_revisions_no_delete
+BEFORE DELETE ON belief_revisions
+BEGIN SELECT RAISE(ABORT, 'belief_revisions is append-only (ADR-0002)'); END;
+
+CREATE TRIGGER IF NOT EXISTS evidence_no_update
+BEFORE UPDATE ON evidence
+BEGIN SELECT RAISE(ABORT, 'evidence is append-only (ADR-0002)'); END;
+
+CREATE TRIGGER IF NOT EXISTS evidence_no_delete
+BEFORE DELETE ON evidence
+BEGIN SELECT RAISE(ABORT, 'evidence is append-only (ADR-0002)'); END;
 """
 
 

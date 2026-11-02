@@ -9,10 +9,13 @@ Validates:
   - Missing belief handling
 """
 
+import ast
 import inspect
 import json
+import re
 import sqlite3
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -418,3 +421,82 @@ class TestOnDisk:
             assert fetched.confidence == pytest.approx(0.5)
             assert store.get_revisions(b.id) == []
             assert store.get_evidence(stray.id) is None
+
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "UPDATE belief_revisions SET reason = 'rewritten'",
+            "DELETE FROM belief_revisions",
+            "UPDATE evidence SET reliability = 1.0",
+            "DELETE FROM evidence",
+        ],
+    )
+    def test_second_connection_cannot_alter_or_remove_the_trail(self, tmp_path, statement):
+        """ADR-0002 says a stored revision is immutable. The refusal is a
+        trigger in the file, so it holds against a connection that never
+        went through EpistemicMemory, and the rows are unchanged after."""
+        db = tmp_path / "episteme.db"
+        b = make_belief(confidence=0.5)
+        e = make_evidence()
+        with EpistemicMemory(db) as store:
+            store.add_belief(b)
+            store.add_evidence(e)
+            store.revise_belief(b.id, e, **counts(0.75), reason="kept")
+
+        other = sqlite3.connect(db)
+        try:
+            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                other.execute(statement)
+            other.rollback()
+        finally:
+            other.close()
+
+        with EpistemicMemory(db) as store:
+            assert [r.reason for r in store.get_revisions(b.id)] == ["kept"]
+            kept = store.get_evidence(e.id)
+            assert kept is not None
+            assert kept.reliability == pytest.approx(e.reliability)
+
+
+class TestNoRewritePath:
+    """The second half of ADR-0002's guard: the trigger stops another
+    connection, and this stops a future change to memory.py itself from
+    issuing a statement that would rewrite the trail."""
+
+    _REWRITE = re.compile(
+        r"\b(?:UPDATE\s+(?:OR\s+\w+\s+)?|DELETE\s+FROM\s+|REPLACE\s+INTO\s+|"
+        r"INSERT\s+OR\s+REPLACE\s+INTO\s+)(belief_revisions|evidence)\b",
+        re.IGNORECASE,
+    )
+
+    def test_memory_module_issues_no_update_delete_or_replace_on_the_trail(self):
+        import episteme.memory as module
+
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        hits = [
+            (node.lineno, m.group(0))
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            for m in self._REWRITE.finditer(node.value)
+        ]
+        assert hits == [], f"memory.py rewrites the append-only trail: {hits}"
+
+    def test_the_pattern_catches_what_it_is_meant_to(self):
+        """A guard that matches nothing proves nothing."""
+        for sql in (
+            "UPDATE belief_revisions SET reason = ?",
+            "update  evidence set summary = ?",
+            "UPDATE OR IGNORE evidence SET summary = ?",
+            "DELETE FROM belief_revisions WHERE id = ?",
+            "INSERT OR REPLACE INTO evidence VALUES (?)",
+            "REPLACE INTO belief_revisions VALUES (?)",
+        ):
+            assert self._REWRITE.search(sql), sql
+        for sql in (
+            "UPDATE beliefs SET confidence = ?",
+            "INSERT OR IGNORE INTO evidence VALUES (?)",
+            "INSERT INTO belief_revisions VALUES (?)",
+            "BEFORE UPDATE ON belief_revisions",
+            "BEFORE DELETE ON evidence",
+        ):
+            assert not self._REWRITE.search(sql), sql
