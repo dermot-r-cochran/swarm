@@ -38,7 +38,10 @@ where:
   ADR-0002's guard, and `::test_revision_previous_state_preserved`; that the
   history is on disk after the store is closed and reopened:
   `::TestOnDisk::test_beliefs_and_revisions_survive_close_and_reopen`; that a
-  stored revision cannot be altered has no test yet).
+  stored revision or evidence record cannot be altered or removed, by any
+  connection: `::TestOnDisk::test_second_connection_cannot_alter_or_remove_the_trail`,
+  and that `memory.py` issues no such statement:
+  `::TestNoRewritePath::test_memory_module_issues_no_update_delete_or_replace_on_the_trail`).
 
 ## Repository layout
 

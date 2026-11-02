@@ -14,7 +14,7 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface and `test_properties.py` for the property suite), 212 tests
+exported surface and `test_properties.py` for the property suite), 218 tests
 total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
@@ -45,6 +45,13 @@ total:
   counting one more revision after each `revise_belief`, never fewer; and a
   revision that fails mid-write leaving the belief row, the revision table
   and the evidence table exactly as they were when the file is reopened.
+  Since 2026-11-02 a stored revision cannot be altered: `memory.py`'s schema
+  carries triggers refusing UPDATE and DELETE on `belief_revisions` and
+  `evidence`, and `TestOnDisk::test_second_connection_cannot_alter_or_remove_the_trail`
+  tries all four from a plain `sqlite3` connection and reads the rows back
+  unchanged. `TestNoRewritePath` is the source half: it walks `memory.py`'s
+  string literals for an UPDATE, DELETE or REPLACE against either table, and
+  checks its own pattern against statements it must and must not catch.
   `TestBetaCounts` also opens a file built with the pre-ADR-0005 schema.
 - `test_experience.py` — the observe→revise loop end to end, including the
   anti-drift guards, each driven through the real loop path:
