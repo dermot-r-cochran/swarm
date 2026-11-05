@@ -108,6 +108,9 @@ The system is organized as five collaborating layers:
 4. **Language Interface** allows claim extraction/formatting but does not write beliefs
    (`tests/test_interface.py::TestWriteIsolation::test_interface_does_not_import_belief_storage`,
    ADR-0003's guard, and `::TestLanguageInterface::test_llm_cannot_directly_modify_beliefs`).
+   `format_belief_record` renders a belief with its type, state and evidence weight, so a
+   FICTION at a high stated prior is not presented as established
+   (`tests/test_interface.py::TestBeliefRecord::test_fiction_at_a_high_prior_is_not_established`).
 5. **Experience Loop** transforms observations into evidence and requests revisions
    (`tests/test_experience.py::TestExperienceLoopBasic::test_supporting_observation_increases_confidence`).
 

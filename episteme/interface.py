@@ -11,9 +11,10 @@ Design invariant (spec §1.4.3):
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
-from episteme.models import BeliefType
+from episteme.models import Belief, BeliefType
 
 
 @dataclass
@@ -190,6 +191,27 @@ class LanguageInterface:
             qualifier = "It is uncertain whether"
 
         return f"{qualifier} {statement} (confidence: {confidence:.0%})"
+
+    def format_belief_record(self, belief: Belief) -> str:
+        """
+        Render a belief with what its record says about it.
+
+        Unlike ``format_belief``, which sees only a statement, a confidence
+        and a state, this keeps the type first and sets the evidence weight
+        beside the confidence (ADR-0005), so a FICTION at a high stated
+        prior is not presented as established.  Takes no action on the
+        belief; rendering is the only thing it does.
+        """
+        weight = belief.evidence_weight
+        basis = (
+            "stated prior, no evidence recorded"
+            if math.isclose(weight, 0.0, abs_tol=1e-9)
+            else f"evidence weight {weight:.1f}"
+        )
+        return (
+            f"{belief.type.value}, {belief.state.value}: {belief.statement} "
+            f"(confidence: {belief.confidence:.0%}, {basis})"
+        )
 
     def format_unknown(self, query: str) -> str:
         """Return the canonical 'unknown' response (spec §1.7)."""
