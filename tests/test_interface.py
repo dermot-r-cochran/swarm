@@ -16,7 +16,7 @@ import pytest
 
 import episteme.interface
 from episteme.interface import Claim, LanguageInterface
-from episteme.models import BeliefType
+from episteme.models import PRIOR_STRENGTH, Belief, BeliefState, BeliefType
 
 
 class TestClaim:
@@ -126,6 +126,45 @@ class TestLanguageInterface:
     def test_label_claim_type_default(self):
         btype = self.iface.label_claim_type("The capital of France is Paris.")
         assert isinstance(btype, BeliefType)
+
+
+class TestBeliefRecord:
+    def setup_method(self):
+        self.iface = LanguageInterface()
+
+    def test_fiction_at_a_high_prior_is_not_established(self):
+        belief = Belief(
+            statement="The moon is made of cheese.",
+            type=BeliefType.FICTION,
+            confidence=0.95,
+            domain="general",
+        )
+        record = self.iface.format_belief_record(belief)
+        assert record.startswith("FICTION, ACTIVE:")
+        assert "stated prior, no evidence recorded" in record
+        assert "established" not in record
+
+    def test_disputed_theory_carries_type_state_and_weight(self):
+        alpha = PRIOR_STRENGTH / 2 + 0.9
+        beta = PRIOR_STRENGTH / 2 + 0.8
+        belief = Belief(
+            statement="The bridge will hold.",
+            type=BeliefType.THEORY,
+            confidence=alpha / (alpha + beta),
+            domain="general",
+            state=BeliefState.DISPUTED,
+            alpha=alpha,
+            beta=beta,
+        )
+        record = self.iface.format_belief_record(belief)
+        assert record.startswith("THEORY, DISPUTED:")
+        assert "evidence weight 1.7" in record
+        assert "prior" not in record
+
+    def test_format_belief_is_unchanged(self):
+        assert self.iface.format_belief("X.", 0.95, "ACTIVE") == (
+            "It is established that X. (confidence: 95%)"
+        )
 
 
 class TestWriteIsolation:

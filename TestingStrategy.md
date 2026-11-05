@@ -14,7 +14,7 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface and `test_properties.py` for the property suite), 218 tests
+exported surface and `test_properties.py` for the property suite), 221 tests
 total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
