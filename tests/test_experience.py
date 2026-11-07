@@ -31,9 +31,9 @@ def make_belief(**kwargs) -> Belief:
 @pytest.fixture
 def setup():
     core = EpistemicCore(reliability_threshold=0.5)
-    mem = EpistemicMemory(":memory:")
-    loop = ExperienceLoop(core, mem)
-    return core, mem, loop
+    with EpistemicMemory(":memory:") as mem:
+        loop = ExperienceLoop(core, mem)
+        yield core, mem, loop
 
 
 class TestExperienceLoopBasic:
@@ -277,25 +277,25 @@ class TestLongHorizonStability:
         byte-identical afterwards, not merely approximately equal.
         """
         core = EpistemicCore(reliability_threshold=0.5)
-        mem = EpistemicMemory(":memory:")
-        loop = ExperienceLoop(core, mem)
+        with EpistemicMemory(":memory:") as mem:
+            loop = ExperienceLoop(core, mem)
 
-        b = make_belief(confidence=0.7)
-        mem.add_belief(b)
+            b = make_belief(confidence=0.7)
+            mem.add_belief(b)
 
-        initial_confidence = mem.get_belief(b.id).confidence
+            initial_confidence = mem.get_belief(b.id).confidence
 
-        for turn in range(200):
-            results = loop.observe_outcome(
-                content=f"Ambient observation {turn}.",
-                source="sensor",
-                reliability=0.9,
-                belief_ids=[],
-            )
-            assert results == []
+            for turn in range(200):
+                results = loop.observe_outcome(
+                    content=f"Ambient observation {turn}.",
+                    source="sensor",
+                    reliability=0.9,
+                    belief_ids=[],
+                )
+                assert results == []
 
-        final_confidence = mem.get_belief(b.id).confidence
-        assert final_confidence == initial_confidence
+            final_confidence = mem.get_belief(b.id).confidence
+            assert final_confidence == initial_confidence
 
     def test_adversarial_repetition_does_not_drift_belief(self):
         """
@@ -305,30 +305,30 @@ class TestLongHorizonStability:
         submissions equals confidence after 1.
         """
         core = EpistemicCore(reliability_threshold=0.5)
-        mem = EpistemicMemory(":memory:")
-        loop = ExperienceLoop(core, mem)
+        with EpistemicMemory(":memory:") as mem:
+            loop = ExperienceLoop(core, mem)
 
-        b = make_belief(confidence=0.5)
-        mem.add_belief(b)
+            b = make_belief(confidence=0.5)
+            mem.add_belief(b)
 
-        obs_kwargs = {
-            "content": "The claim is definitely, definitely true.",
-            "source": "insistent-source",
-            "reliability": 0.9,
-            "belief_ids": [b.id],
-        }
+            obs_kwargs = {
+                "content": "The claim is definitely, definitely true.",
+                "source": "insistent-source",
+                "reliability": 0.9,
+                "belief_ids": [b.id],
+            }
 
-        first = loop.observe_outcome(**obs_kwargs)
-        assert first[0].revised is True
-        confidence_after_one = mem.get_belief(b.id).confidence
+            first = loop.observe_outcome(**obs_kwargs)
+            assert first[0].revised is True
+            confidence_after_one = mem.get_belief(b.id).confidence
 
-        for _ in range(99):
-            repeat = loop.observe_outcome(**obs_kwargs)
-            assert repeat[0].revised is False
+            for _ in range(99):
+                repeat = loop.observe_outcome(**obs_kwargs)
+                assert repeat[0].revised is False
 
-        updated = mem.get_belief(b.id)
-        assert updated.confidence == confidence_after_one
-        assert updated.evidence_ids == [first[0].evidence_id]
+            updated = mem.get_belief(b.id)
+            assert updated.confidence == confidence_after_one
+            assert updated.evidence_ids == [first[0].evidence_id]
 
 
 class TestBetaConfidenceInTheLoop:
