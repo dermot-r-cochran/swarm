@@ -49,6 +49,9 @@ files = ["episteme"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+# Any warning fails the run (Dermot, 7 Nov 2026), now the suite is warning-free (PR #35):
+# an unclosed store or a new Python's deprecation surfaces in CI instead of scrolling by.
+filterwarnings = ["error"]
 
 [tool.ruff]
 line-length = 100
