@@ -14,7 +14,7 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface and `test_properties.py` for the property suite), 221 tests
+exported surface and `test_properties.py` for the property suite), 223 tests
 total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
@@ -102,6 +102,12 @@ total:
   a store the example is pointed at holds the one DISPUTED belief, its two
   revisions and one evidence id on each side. Outside `--cov=episteme` for
   the same reason as the Archipelago example.
+- `test_example_admit_claim.py` (added 2026-11-07) — pins the README's
+  *Admitting a claim*, `examples/admit_claim.py`: a claim proposed at 0.9
+  becomes a belief at the uniform prior of 0.5 (Beta(1, 1)) with no evidence
+  weight and no revisions, keeps the claim's text, type and domain, and
+  moves only on an eligible observation. Outside `--cov=episteme` for the
+  same reason as the other examples.
 
 Run: `pytest` (config in `pyproject.toml`; `testpaths = ["tests"]`).
 
