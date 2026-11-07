@@ -54,6 +54,8 @@ where:
   (`tests/test_population.py`)
 - `examples/first_belief.py` – the core flow on one belief, from a fresh install
   (`tests/test_example_first_belief.py::test_first_run_shows_the_flow_and_its_refusals`)
+- `examples/admit_claim.py` – a Claim admitted as a belief at the uniform prior of 0.5
+  (`tests/test_example_admit_claim.py::test_admitted_claim_starts_at_the_uniform_prior_and_moves_only_on_evidence`)
 - `examples/archipelago_first_fork.py` – the synthesis run over a published Archipelago export
   (`tests/test_example_archipelago.py::test_example_reads_an_export_and_cites_the_record`)
 - `tests/` – unit tests for all modules (`.github/scripts/check_docs.py` fails CI if a module
@@ -165,6 +167,23 @@ before and after it, and the core's reason. Pass a file path to keep the
 store on disk and read it back with `EpistemicMemory`
 (`tests/test_example_first_belief.py::test_first_run_shows_the_flow_and_its_refusals`,
 `::test_first_run_on_disk_leaves_the_store_the_report_describes`).
+
+### Admitting a claim
+
+```bash
+python examples/admit_claim.py
+```
+
+A `Claim` from the language interface or the population synthesis is a proposal,
+and its `confidence` is advisory. Admitting one is the caller's act: create a
+`Belief` from the claim's text, type and domain at a stated prior, here the
+uniform 0.5 (Beta(1, 1) under ADR-0005), and leave the claim's own confidence
+behind, because a model that sounds sure is not evidence. From then on only
+evidence the core finds eligible moves the belief, and each move is a recorded
+revision. The example admits a claim proposed at 0.9, shows the belief at 0.500
+with no evidence weight and no revisions, then one reliable observation raising it
+(`tests/test_example_admit_claim.py::test_admitted_claim_starts_at_the_uniform_prior_and_moves_only_on_evidence`,
+`::test_admit_keeps_text_type_and_domain_but_not_the_claims_confidence`).
 
 ## Development workflow
 
