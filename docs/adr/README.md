@@ -16,3 +16,4 @@ implementation in this repository.
 - [ADR-0003: Keep language interface write-isolated from belief storage](0003-language-interface-write-isolation.md) — Accepted
 - [ADR-0004: Population synthesis is cited structure, never interpretation](0004-population-synthesis-is-structure-not-interpretation.md) — Accepted
 - [ADR-0005: Belief confidence is the mean of a reliability-weighted Beta posterior](0005-beta-posterior-confidence.md) — Accepted
+- [ADR-0006: A peer network, if one is built, has hybrid-agents as its nodes](0006-peer-network-of-hybrid-agent-nodes.md) — Proposed
