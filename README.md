@@ -27,7 +27,10 @@ where:
   repository holds no outcome data),
 - evidence is validated before it can influence beliefs
   (`tests/test_core.py::TestUpdateEligibility::test_ineligible_low_reliability`,
-  `tests/test_experience.py::TestExperienceLoopBasic::test_low_reliability_does_not_revise`),
+  `tests/test_experience.py::TestExperienceLoopBasic::test_low_reliability_does_not_revise`;
+  that a record moves a belief at most once, from either side, however often and
+  in whatever order it is resubmitted, searched by hypothesis through the loop:
+  `tests/test_properties.py::test_repetition_never_compounds_through_the_loop`),
 - update rules are enforced by a side-effect-free core (the rules:
   `tests/test_core.py::TestUpdateEligibility::test_language_only_update_rejected`
   and `::test_confidence_delta_clamped`; that the core writes nothing:
