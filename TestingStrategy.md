@@ -14,7 +14,7 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface and `test_properties.py` for the property suite), 223 tests
+exported surface and `test_properties.py` for the property suite), 224 tests
 total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
@@ -88,6 +88,27 @@ total:
   its counts are ones a `Belief` accepts; and supporting evidence never
   lowers confidence while counter-evidence never raises it. They generalise
   `test_core.py::TestBetaPosterior`'s grid; they are not ADR guards.
+  The third (added 2026-11-12), `test_repetition_never_compounds_through_the_loop`,
+  is a `hypothesis` stateful machine driving the real `ExperienceLoop`
+  (a default `EpistemicCore`, a `:memory:` store) against a plain model of
+  what each belief has admitted. It searches runs of observations from a
+  small pool (three contents, each from two sources, one reliability per
+  key below, at or above the threshold) sent for or against one to three
+  beliefs at drawn priors, in any order and as often as it likes, and
+  checks that a record revises a belief only if it is new to that belief on
+  either side and meets the threshold; that a belief not revised reads back
+  unchanged; that the same record at another reliability is refused with a
+  `ValueError` and changes nothing; that each belief's evidence ids are the
+  admitted records in order, with no repeat and none on both sides; that it
+  has one revision per admitted record; that alpha and beta never gain more
+  than the reliabilities of the distinct records admitted to each side; and
+  that the revision trail runs from the prior to the current state citing
+  each record in turn. It is AGENTS.md principles 3, 5 and 8 through the
+  loop, not an ADR guard, and its limit is one loop, one store, one thread:
+  it says nothing about concurrent observers (see Known gaps). FACT,
+  measured 12 November 2026: eight single-line mutants of the dedup path,
+  each of which survived the 223 tests before it at 100% coverage, are all
+  killed by this test.
 - `test_example_archipelago.py` — pins the shape `examples/archipelago_first_fork.py`
   reads from a `virtual-anthropology` export (a fixture with `dataset.json`
   and `governance_events.json` in that shape): votes cited to their
@@ -161,12 +182,11 @@ framework (AGENTS.md principle 10).
   processes, each with its own lock, are untested: the process-wide
   `RLock` cannot serialise them, so what SQLite's own locking makes of two
   concurrent `revise_belief` calls on one belief is unknown.
-- The property suite (`test_properties.py`, 2026-10-30) covers the
-  confidence update: in [0, 1], no NaN, bounded movement per record, and
-  direction. Still fixed-case: `check_adversarial_pressure`, and repetition
-  never compounding through the loop
-  (`test_adversarial_repetition_does_not_drift_belief`), which a stateful
-  `hypothesis` test over `ExperienceLoop` could generalise.
+- The property suite (`test_properties.py`) covers the confidence update
+  (2026-10-30: in [0, 1], no NaN, bounded movement per record, and
+  direction) and, since 2026-11-12, repetition never compounding through
+  the loop, by a stateful machine over `ExperienceLoop`. Still fixed-case:
+  `check_adversarial_pressure`.
 - Coverage sits at 100%, so the ratchet has no headroom left; the next
   raises come from new modules bringing their own tests, not from covering
   a backlog (`pytest --cov=episteme --cov-report=term-missing` confirms).
