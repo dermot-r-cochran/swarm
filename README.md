@@ -139,8 +139,13 @@ Each capability above names the test that proves it, or says it has no test yet
 (the README-proof convention, 10 October 2026). `.github/scripts/check_docs.py`,
 run in CI, fails on a relative link in this README or under `docs/` that resolves
 to nothing, a second front-matter block in any Markdown file, an ADR index that
-does not list exactly the ADRs in `docs/adr/`, and a repository layout above that
-names a path that is gone or misses a module.
+does not list exactly the ADRs in `docs/adr/`, a repository layout above that
+names a path that is gone or misses a module, and a test cited in any Markdown file
+that `tests/` does not define
+(`tests/test_check_docs.py::test_a_citation_that_names_no_test_is_refused`,
+`::TestThisRepository::test_renaming_a_cited_guard_fails_the_check_wherever_it_is_cited`).
+Whether a cited test still proves the claim beside it is not something the check
+can tell.
 
 ## Getting started
 

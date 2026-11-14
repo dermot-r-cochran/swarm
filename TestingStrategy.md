@@ -14,8 +14,8 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface and `test_properties.py` for the property suite), 224 tests
-total:
+exported surface, `test_properties.py` for the property suite and
+`test_check_docs.py` for the doc check), 263 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -129,6 +129,27 @@ total:
   weight and no revisions, keeps the claim's text, type and domain, and
   moves only on an eligible observation. Outside `--cov=episteme` for the
   same reason as the other examples.
+- `test_check_docs.py` (added 2026-11-14) — the doc check's citation rule,
+  loaded by path from `.github/scripts/check_docs.py`. On a small tree under
+  `tmp_path`: every form of citation the Markdown here uses resolves; each
+  kind of dangling one is refused with its file and line (a test or a test
+  file renamed or removed, a class left out of the id, a helper or an
+  uncollected class cited as a test, a continuation with nothing before it
+  or outside the class before it, an id the check cannot read); code that is
+  not a citation, and anything in a fenced block, is left alone; and a test
+  in another repository is exempt only in the file `ELSEWHERE` lists it for.
+  On the real tree (`TestThisRepository`): every cited test resolves, and
+  with ADR-0002's guard `test_beliefs_never_deleted` taken out of the index,
+  as a rename would leave it, the check reports the citation in `README.md`,
+  `TestingStrategy.md` and `CLAUDE.md`. `tests/test_memory.py` itself is not
+  touched. Outside `--cov=episteme`: the script is not part of the package.
+  FACT, measured 14 November 2026: the index the check reads with `ast` is
+  the same 192 test ids `pytest --collect-only` lists once parameters are
+  folded. Measured once the same day and not kept as a script, so not
+  reproducible from this repository: 28 small mutants of the citation rule
+  (one condition or statement each) were all killed by this file; the list
+  is in the pull request that added it. Its limit: it proves the rule on the
+  forms listed, not that the rule reads every way a test could be cited.
 
 Run: `pytest` (config in `pyproject.toml`; `testpaths = ["tests"]`).
 
@@ -157,7 +178,13 @@ Run: `pytest` (config in `pyproject.toml`; `testpaths = ["tests"]`).
   file, an ADR index (`docs/adr/README.md`) that does not list exactly the
   ADR files on disk, and a README repository layout that names a missing
   path, leaves out a module in `episteme/`, or claims tests for a module that
-  has no `tests/test_<module>.py`. What it cannot check is that a test the
+  has no `tests/test_<module>.py`. Since 2026-11-14 it also fails on a test
+  cited in any Markdown file that `tests/` does not define: a test file, a
+  full or continued test id, or a bare test or class name, read with `ast`
+  from the test sources without importing them (the script's docstring gives
+  the forms and the limits; `test_check_docs.py` proves the refusals). Its
+  first run found one: `CLAUDE.md` cited ADR-0002's guard without its class,
+  an id `pytest` does not find. What it cannot check is that a test the
   README cites still proves the claim beside it: every capability bullet in
   the README names its test or says "no test yet", and keeping that true is
   part of any change that renames a test or a capability.
@@ -187,6 +214,9 @@ framework (AGENTS.md principle 10).
   direction) and, since 2026-11-12, repetition never compounding through
   the loop, by a stateful machine over `ExperienceLoop`. Still fixed-case:
   `check_adversarial_pressure`.
+- The doc check's citation rule has its tests (`test_check_docs.py`); its
+  three older checks (links, front matter, the layout and ADR index against
+  the disk) have none, so a slip in one of them would pass unseen.
 - Coverage sits at 100%, so the ratchet has no headroom left; the next
   raises come from new modules bringing their own tests, not from covering
   a backlog (`pytest --cov=episteme --cov-report=term-missing` confirms).

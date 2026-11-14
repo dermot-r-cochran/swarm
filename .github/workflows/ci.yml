@@ -117,6 +117,8 @@ jobs:
     # relative link in README.md or docs/, a second front-matter block, and
     # a README layout or ADR index that does not match the disk. Added
     # 2026-10-10 with the README-proof convention; see TestingStrategy.md.
+    # Since 2026-11-14 it also fails on a test cited in any Markdown file
+    # that tests/ does not define.
     name: docs
     runs-on: ubuntu-latest
     steps:
