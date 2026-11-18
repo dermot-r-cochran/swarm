@@ -155,7 +155,7 @@ Run: `pytest` (config in `pyproject.toml`; `testpaths = ["tests"]`).
 
 ## Layer 2 — CI (`.github/workflows/ci.yml`)
 
-- **pytest on 3.11 / 3.12 / 3.13**, `fail-fast: false` — "fails on 3.13 only"
+- **pytest on 3.11 / 3.12 / 3.13 / 3.14 / 3.15**, `fail-fast: false` — "fails on 3.15 only"
   and "fails everywhere" are different findings and both are worth seeing in
   one run.
 - **Coverage ratchet**: the CI run is `pytest --cov=episteme
