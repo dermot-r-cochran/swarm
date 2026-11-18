@@ -160,6 +160,22 @@ cd <repository-root>
 python -m pip install -e ".[dev]"
 ```
 
+### Install from another project
+
+To depend on a release from another project, pin its tag:
+
+```bash
+pip install "episteme @ git+https://github.com/dermot-r-cochran/swarm@v0.1.0"
+```
+
+or, in that project's `pyproject.toml`:
+
+```toml
+dependencies = ["episteme @ git+https://github.com/dermot-r-cochran/swarm@v0.1.0"]
+```
+
+No release is tagged yet; the first, `v0.1.0`, is owed. Until it is pushed, put a commit SHA in place of `v0.1.0`.
+
 ### First run
 
 ```bash
