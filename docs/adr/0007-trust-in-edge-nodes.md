@@ -61,20 +61,33 @@ reliability a record is admitted at is the trust held for its pair. A node may
 state a lower reliability for its own reading, and the lower figure is used; it
 can never state a higher one.
 
-### 3. A new node starts below the threshold
+### 3. A new node is neutral and unverified
 
-A person sets the starting trust at enrolment, with a written reason, and the
-setting is appended to a trust record that is never overwritten (the ADR-0002
-discipline applied to trust). The default for a new pair is below the core's
-`reliability_threshold`. Its reports are recorded but move no belief until a
-person raises its trust or checked outcomes do (section 4). This is probation
-by construction: no new rule in the core, only the existing threshold.
+The author's ruling, 22 November 2026: *"A new node is neutral and unverified,
+keeping in mind that a covert node may pretend to be good and then switch
+tactics later on."* Section 8 takes up the second half.
+
+- **Neutral:** a new pair's trust starts at the uniform Beta(1, 1), mean 0.5,
+  the same prior ADR-0005 gives a belief stated at 0.5. Enrolment says nothing
+  for or against the node.
+- **Unverified:** a pair with no checked outcome is unverified, and an
+  unverified pair's reports are recorded but not admitted as evidence. They
+  move no belief. The gate is the verification state, not the number:
+  `EpistemicCore` admits reliability *at or above* its threshold (default
+  0.5), so a neutral figure alone would let an unchecked node move beliefs.
+- A pair becomes verified when its first checked outcome is recorded and is
+  found right. A person may also verify it directly, with a written reason.
+
+Every setting is appended, with who made it and why, to a trust record that
+is never overwritten (the ADR-0002 discipline applied to trust).
 
 ### 4. Trust is revised only by checked outcomes or by a person
 
 Trust in a pair is the mean of a Beta posterior over checked outcomes, by the
-same arithmetic as ADR-0005: a report later found right by an independent check
-adds to α, one found wrong adds to β, starting from the prior the person set.
+arithmetic of ADR-0005 with the two changes section 8 needs: a report later
+found right by an independent check adds to α, one found wrong adds to β,
+starting from the neutral prior; older outcomes count for less than recent
+ones; and a failure counts for more than a success.
 An independent check is one that does not come from the swarm: a person's
 inspection, a reference instrument, or a ground truth recorded later. Each
 check is appended with what was checked against what.
@@ -86,8 +99,9 @@ Trust is never revised by:
 - time online without checks;
 - the node's own statement of its accuracy.
 
-Without checked outcomes, trust stays where a person set it. A person may
-lower or raise it at any time, with a reason, as an appended entry.
+Without checked outcomes, trust stays where it is: it does not rise, and an
+unverified pair stays unverified. A person may lower or raise it at any time,
+with a reason, as an appended entry.
 
 ### 5. Correlated nodes count once
 
@@ -114,7 +128,38 @@ Beliefs that rest on the revoked node's evidence are listed for a person's
 review. They are not recomputed silently (AGENTS.md 3); a person decides
 whether to record counter-evidence or leave them.
 
-### 8. The admission check stays small
+### 8. A good record buys no licence: the covert node that switches
+
+A covert node can behave well while it is watched, build a record, and then
+report falsely once its trust is high. The design assumes any node may do
+this, and limits what a good history is worth:
+
+- **Checks never stop.** Outcomes are checked for the life of a node, not only
+  while it is new. Which reports are checked is drawn by lot, at a stated
+  rate, after the report has arrived, so a node cannot tell which of its
+  reports will be checked and cannot behave well only on those.
+- **Recent outcomes count most.** Each pair's α and β are discounted by a
+  stated factor at every new checked outcome, so a long good history cannot
+  cushion a switch: after a switch, trust falls within a few failed checks
+  rather than over as many as it took to build.
+- **Failure counts more than success.** A failed check adds a stated multiple
+  of the weight a passed check adds. Trust is slow to earn and quick to lose.
+- **A failure after a good run suspends.** When a verified pair fails a check,
+  it returns to unverified (section 3) at once: its reports are recorded and
+  not admitted until a person reviews it. Every belief its admitted evidence
+  supported is listed for that review, most recent first, as in revocation
+  (section 7), and none is recomputed silently. The switch may have begun
+  before the check that caught it, so the list does not stop at the last
+  passed check.
+- **Trust has a ceiling below 1.** No pair's trust, however long its record,
+  exceeds a stated ceiling, so no single node becomes a source the swarm
+  cannot outweigh. Together with the ADR-0005 cap on one record, this bounds
+  what one switched node can do before its next check.
+- **Good history does not transfer.** A record earned on one kind of
+  observation gives no trust on another (section 2), so a node cannot build
+  trust on easy, checkable readings and spend it on hard, unchecked ones.
+
+### 9. The admission check stays small
 
 Admitting a report needs a signature check and a table lookup for the pair's
 trust and the node's group: no model, no network call, and no state beyond
@@ -126,7 +171,7 @@ THEORY until measured on a stated machine; no measurement exists yet.
 - **Principle 3 (no silent updates):** every change to trust is an appended,
   attributed entry; revocation lists affected beliefs instead of changing them.
 - **Principle 5 (no drift by exposure):** trust rises only with independent
-  checks, never with time or traffic.
+  checks, never with time or traffic, and a long record cannot lock it in.
 - **Principle 8 (volume is not truth):** repetition within a node is already
   deduplicated by `context_hash`; repetition across declared correlated nodes
   is deduplicated by group; agreement never raises trust.
@@ -143,6 +188,10 @@ THEORY until measured on a stated machine; no measurement exists yet.
   the ADR-0005 cap and correlation groups limit what one stolen key can do;
   they do not make the network tolerant of any given share of hostile nodes.
   No such property is claimed or tested.
+- **Catching every switch.** Checks drawn by lot make a switch likely to be
+  caught, not certain to be. A node that lies rarely, or only on reports that
+  are hard to check, may go unnoticed for longer than the check rate
+  suggests; how long is unmeasured.
 - **Undeclared correlation.** Two nodes with a common cause nobody declared
   still count as two.
 - **Budget.** No figure for memory, latency or power is claimed.
@@ -156,14 +205,18 @@ THEORY until measured on a stated machine; no measurement exists yet.
   likely guards:
   - trust in a pair cannot be raised by reports from other nodes agreeing with
     it, however many;
-  - a report from a pair at the default starting trust cannot move a belief;
+  - a report from an unverified pair cannot move a belief, although its
+    trust is the neutral 0.5 that the core's threshold would admit;
+  - a verified pair that fails one check is unverified at once, however long
+    its good record;
+  - no record of passed checks lifts a pair's trust above the ceiling;
   - a node cannot raise the reliability its own report is admitted at;
   - revoking a node changes no stored belief.
+- Settled by the author, 22 November 2026: a new node starts neutral and
+  unverified (section 3), and the design assumes a node may switch (section 8).
 - Left open for acceptance, each the author's call:
-  - the default starting trust (a figure below 0.5, or "zero until a person
-    sets it");
-  - whether trust with no check for a stated time falls back towards its
-    starting figure, or stays where it is;
+  - the check rate, the discount factor, the weight of a failure against a
+    success, and the ceiling (section 8);
   - the window within which a correlation group's reports count once;
   - whether a person's direct observation is itself enrolled as a node with
     its own trust, or stands outside the scheme.
