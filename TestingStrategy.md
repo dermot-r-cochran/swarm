@@ -15,7 +15,7 @@ future change breaches an ADR, not to exercise a feature.
 
 One test file per module (plus `test_public_api.py` for the package's
 exported surface, `test_properties.py` for the property suite and
-`test_check_docs.py` for the doc check), 263 tests total:
+`test_check_docs.py` for the doc check), 279 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -116,6 +116,22 @@ exported surface, `test_properties.py` for the property suite and
   petitions parsed or refused loudly, goals as utterances. The example is
   outside `--cov=episteme`, so this is a smoke test of the crossing, not a
   coverage contributor.
+- `test_example_edge_node.py` (added 2026-11-22) — the edge-node prototype in
+  `examples/edge_node.py`, against the guards ADR-0006 and ADR-0007 (both
+  Proposed) name as likely: a node's hypothesis is held as a `Claim` and never
+  stored as a belief; unenrolled, forged and revoked packets are refused whole;
+  a pair at the default trust moves no belief; a node can lower its own weight
+  and never raise it; peer agreement never changes trust, which moves only by
+  checked outcomes in exact Beta arithmetic; reports from one declared group
+  count once; one group's lifetime weight on a belief is capped, so one peer
+  flooding distinct observations cannot take a uniform prior past 0.75;
+  aggregation conserves weight exactly and gives the same awards in any input
+  order; revocation changes no belief. Its live test runs hybrid-agent with
+  `--rules-first` and is skipped where hybrid-agent is not installed (as in
+  CI); the others read a report recorded from it in
+  `tests/fixtures/hybrid_agent_rules_first_report.json` (hybrid-agent at
+  `65d5af6`). Outside `--cov=episteme`, like the other examples. These are not
+  ADR guards until the ADRs are accepted.
 - `test_example_first_belief.py` (added 2026-11-01) — pins the README's
   first run, `examples/first_belief.py`: its report shows two revisions
   and two refusals in the stated order with the core's reasons, the
