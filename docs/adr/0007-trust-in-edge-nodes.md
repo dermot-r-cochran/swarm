@@ -1,0 +1,169 @@
+# ADR-0007: Trust in an edge node is set by people and revised only by checked outcomes
+
+- **Status:** Proposed
+- **Date:** 2026-11-22
+- **Depends on:** ADR-0006 (Proposed). If ADR-0006 is not accepted, this record
+  lapses with it.
+
+## Context
+
+ADR-0006 places any peer network in this repository, with hybrid-agents as its
+nodes, and leaves open "how a node's reliability is set and revised". This
+record proposes an answer for the case the author's research direction points
+at (22 November 2026): nodes that run at the edge, on small devices with local
+sensors, tight compute, memory and power budgets, and intermittent links.
+
+The following are FACT about the code as it stands:
+
+- `Evidence` carries a `reliability` in [0, 1], a `context_hash` and a
+  `timestamp`. It carries no source: nothing records which node, sensor or
+  person an observation came from.
+- `EpistemicCore` refuses evidence below `reliability_threshold` (default 0.5)
+  and caps what one record can move a belief by (`max_confidence_delta`,
+  ADR-0005).
+- Under ADR-0005 reliability is the weight a record adds to α or β. Whoever
+  sets reliability therefore sets how far a record can move a belief.
+- ADR-0005 records as a known limit that two records sharing an unseen common
+  cause count as two.
+
+At the edge those facts meet conditions a single local store does not face:
+
+- **A device can be held by someone else.** Its key can be copied and its
+  software changed. A node's report about itself is not evidence about itself.
+- **Nodes share causes.** Ten nodes with the same sensor model, the same
+  firmware or the same on-device model are not ten independent witnesses. A
+  swarm makes the ADR-0005 limit the common case rather than the rare one.
+- **Links come and go.** Reports arrive late, in batches and out of order, and
+  a device's clock may be wrong.
+- **The trust check runs on the device.** Whatever decides whether to admit a
+  report must fit the same budget as the node's own work.
+
+The failure to avoid is the one AGENTS.md principles 3, 5 and 8 name: trust
+that grows from agreement, volume or a node's own fluency, so that a group of
+nodes repeating each other ends up believed.
+
+## Decision (proposed)
+
+### 1. Identity is not trust
+
+Each node has a signing key created on the device. A person enrols the node by
+recording its public key, who enrolled it and when. A report that is unsigned,
+or signed by a key not enrolled, is refused, not down-weighted. A verified
+signature says which node sent a report; it says nothing about whether the
+report is right.
+
+### 2. Trust is per node and per kind of observation
+
+Trust is held for a pair: a node and a kind of observation (for example, a
+temperature reading, an image classification, a summary of a log). A node
+trusted for one kind has no trust for another until a person sets it. The
+reliability a record is admitted at is the trust held for its pair. A node may
+state a lower reliability for its own reading, and the lower figure is used; it
+can never state a higher one.
+
+### 3. A new node starts below the threshold
+
+A person sets the starting trust at enrolment, with a written reason, and the
+setting is appended to a trust record that is never overwritten (the ADR-0002
+discipline applied to trust). The default for a new pair is below the core's
+`reliability_threshold`. Its reports are recorded but move no belief until a
+person raises its trust or checked outcomes do (section 4). This is probation
+by construction: no new rule in the core, only the existing threshold.
+
+### 4. Trust is revised only by checked outcomes or by a person
+
+Trust in a pair is the mean of a Beta posterior over checked outcomes, by the
+same arithmetic as ADR-0005: a report later found right by an independent check
+adds to α, one found wrong adds to β, starting from the prior the person set.
+An independent check is one that does not come from the swarm: a person's
+inspection, a reference instrument, or a ground truth recorded later. Each
+check is appended with what was checked against what.
+
+Trust is never revised by:
+
+- agreement with other nodes (consensus is not evidence; ADR-0006);
+- the number of reports a node sends (volume is not a truth signal, AGENTS.md 8);
+- time online without checks;
+- the node's own statement of its accuracy.
+
+Without checked outcomes, trust stays where a person set it. A person may
+lower or raise it at any time, with a reason, as an appended entry.
+
+### 5. Correlated nodes count once
+
+A person may declare a correlation group: nodes sharing a sensor model,
+firmware, on-device model, site or upstream data. Within one group, reports
+bearing on the same belief inside one window are admitted as one record, at
+the highest trust among them. This is the `context_hash` deduplication of the
+experience loop raised from one record to one group. A correlation nobody has
+declared still counts twice; that part of the ADR-0005 limit stays open, and
+is stated rather than solved.
+
+### 6. Late and offline reports
+
+A report is ordered by when it was received, and keeps the node's own
+timestamp as a stated value, never as the ordering key. A report from a node
+that was offline is admitted on arrival by the same rules as any other; being
+late neither raises nor lowers it.
+
+### 7. Revocation keeps the record
+
+A person can revoke a node (a lost or tampered device). Revocation refuses its
+later reports and marks its earlier evidence; nothing is deleted (ADR-0002).
+Beliefs that rest on the revoked node's evidence are listed for a person's
+review. They are not recomputed silently (AGENTS.md 3); a person decides
+whether to record counter-evidence or leave them.
+
+### 8. The admission check stays small
+
+Admitting a report needs a signature check and a table lookup for the pair's
+trust and the node's group: no model, no network call, and no state beyond
+the enrolment, trust and group tables. That it fits a small device's budget is
+THEORY until measured on a stated machine; no measurement exists yet.
+
+## How this meets AGENTS.md
+
+- **Principle 3 (no silent updates):** every change to trust is an appended,
+  attributed entry; revocation lists affected beliefs instead of changing them.
+- **Principle 5 (no drift by exposure):** trust rises only with independent
+  checks, never with time or traffic.
+- **Principle 8 (volume is not truth):** repetition within a node is already
+  deduplicated by `context_hash`; repetition across declared correlated nodes
+  is deduplicated by group; agreement never raises trust.
+- **Principle 10 (vendor neutrality):** no device, runtime, transport or
+  signature scheme is named; the record states the properties a choice must
+  have.
+
+## What this does not claim
+
+- **Calibration.** A trust of 0.8 is a summary of checked outcomes, not a
+  measured probability that the next report is right. The repository holds no
+  outcome data.
+- **Resistance to a coordinated attack.** Enrolment by people, per-kind trust,
+  the ADR-0005 cap and correlation groups limit what one stolen key can do;
+  they do not make the network tolerant of any given share of hostile nodes.
+  No such property is claimed or tested.
+- **Undeclared correlation.** Two nodes with a common cause nobody declared
+  still count as two.
+- **Budget.** No figure for memory, latency or power is claimed.
+
+## Consequences
+
+- Nothing is built while ADR-0006 is Proposed. On acceptance of both, `Evidence`
+  gains a source (node and kind), which is a breaking change to its id payload
+  and is decided then, not here.
+- On acceptance, this record gets its guard tests in the same change. The
+  likely guards:
+  - trust in a pair cannot be raised by reports from other nodes agreeing with
+    it, however many;
+  - a report from a pair at the default starting trust cannot move a belief;
+  - a node cannot raise the reliability its own report is admitted at;
+  - revoking a node changes no stored belief.
+- Left open for acceptance, each the author's call:
+  - the default starting trust (a figure below 0.5, or "zero until a person
+    sets it");
+  - whether trust with no check for a stated time falls back towards its
+    starting figure, or stays where it is;
+  - the window within which a correlation group's reports count once;
+  - whether a person's direct observation is itself enrolled as a node with
+    its own trust, or stands outside the scheme.
