@@ -166,6 +166,38 @@ trust and the node's group: no model, no network call, and no state beyond
 the enrolment, trust and group tables. That it fits a small device's budget is
 THEORY until measured on a stated machine; no measurement exists yet.
 
+### 10. The figures are set by each node, for its own context
+
+The author's ruling, 22 November 2026: *"The other questions would depend on
+the context as understood by each node."* So the check rate, the discount
+factor, the weight of a failure against a success, the ceiling, the
+correlation window, and whether a person's direct observation is enrolled as
+a source are not constants of the network. Each node sets them for itself,
+from its own understanding of its context: what it senses, what a wrong
+belief would cost it, how often it can afford a check, how often its links
+drop.
+
+- **The node that judges sets them, never the node judged.** Each node keeps
+  its own memory (ADR-0006), so each node holds its own trust in its peers and
+  applies its own figures to the reports it receives. No node's figures
+  decide how far it is itself trusted by another; that would let a node raise
+  its own trust, which section 2 forbids.
+- **A node's understanding of its context is its own belief.** It is held
+  and revised by the existing rules (ADR-0001 to ADR-0005), and every change
+  to a figure is appended with the context it was set for and who or what set
+  it. A figure changed because of a peer's report is changed only through
+  that report's admission as evidence, never directly.
+- **Context sets the figures; it cannot remove the floors.** Whatever a node
+  understands, these hold everywhere and are the guards: an unverified pair
+  is never admitted (section 3); the check rate is above zero; a failure
+  weighs at least as much as a success; the ceiling is below 1; agreement
+  never raises trust (section 4); and trust never transfers between kinds
+  (section 2). A context that seems to call for breaking one is recorded as
+  a reason to revisit this record, not acted on.
+- **Two nodes may trust the same peer differently.** That is expected, not a
+  fault: their contexts differ. Their disagreement is kept (AGENTS.md 5), and
+  neither node's trust is evidence for the other.
+
 ## How this meets AGENTS.md
 
 - **Principle 3 (no silent updates):** every change to trust is an appended,
@@ -211,12 +243,13 @@ THEORY until measured on a stated machine; no measurement exists yet.
     its good record;
   - no record of passed checks lifts a pair's trust above the ceiling;
   - a node cannot raise the reliability its own report is admitted at;
-  - revoking a node changes no stored belief.
+  - revoking a node changes no stored belief;
+  - no figure a node sets for its context can breach a floor of section 10;
+  - no node's figures change the trust another node holds in it.
 - Settled by the author, 22 November 2026: a new node starts neutral and
-  unverified (section 3), and the design assumes a node may switch (section 8).
-- Left open for acceptance, each the author's call:
-  - the check rate, the discount factor, the weight of a failure against a
-    success, and the ceiling (section 8);
-  - the window within which a correlation group's reports count once;
-  - whether a person's direct observation is itself enrolled as a node with
-    its own trust, or stands outside the scheme.
+  unverified (section 3); the design assumes a node may switch (section 8);
+  and the remaining figures are set by each node for its own context, within
+  fixed floors (section 10).
+- Left open: nothing in this record. How a node turns its context into
+  figures is a design for the build, decided with it, and does not change
+  the floors.
