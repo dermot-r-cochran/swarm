@@ -750,6 +750,8 @@ class Offer:
     belief_id: str
     supporting: bool
     weight: Fraction
+    #: The context trust was held in for this offer, recorded on the evidence.
+    context: str = ""
 
 
 @dataclass(frozen=True)
@@ -959,7 +961,8 @@ class EdgeNode:
             if stated is not None:
                 weight = min(weight, Fraction(stated))
             self._contexts.setdefault((node_id, item.item_id), set()).add(context)
-            self._pending.append(Offer(node_id, group, item, route.belief_id, direction, weight))
+            self._pending.append(Offer(node_id, group, item, route.belief_id, direction, weight,
+                                       context))
             self._seen.append(_Seen(node_id, group, item, route.belief_id, context))
 
     def _check_consistency(self) -> None:
@@ -1081,6 +1084,8 @@ class EdgeNode:
                 content=f"{o.item.kind}: {o.item.summary} [{o.item.item_id}]",
                 source=f"node:{o.node_id}",
                 reliability=float(award.applied),
+                node=o.node_id,
+                kind=o.context,
             )
             try:
                 (result,) = loop.observe(observation, [o.belief_id], supporting=o.supporting)

@@ -9,6 +9,9 @@ Validates:
   - Revision callback is invoked
 """
 
+import hashlib
+import json
+
 import pytest
 
 from episteme.core import EpistemicCore
@@ -262,6 +265,32 @@ class TestExperienceLoopBasic:
         assert all(r.revised for r in results)
         assert mem.get_belief(b1.id).confidence > 0.4
         assert mem.get_belief(b2.id).confidence > 0.4
+
+
+class TestSendingNode:
+    """Evidence received from a peer records the node and kind (ADR-0007)."""
+
+    def test_node_and_kind_reach_the_stored_evidence(self, setup):
+        _core, mem, loop = setup
+        b = make_belief(confidence=0.5)
+        mem.add_belief(b)
+        obs = Observation(content="p95 rose", source="node:edge-a", reliability=0.9,
+                          node="edge-a", kind="metrics")
+        (result,) = loop.observe(obs, [b.id])
+        stored = mem.get_evidence(result.evidence_id)
+        assert (stored.node, stored.kind) == ("edge-a", "metrics")
+
+    def test_an_observation_without_a_node_keeps_its_context_hash(self, setup):
+        # So a store written before the field existed still deduplicates.
+        _core, _mem, loop = setup
+        plain = loop._build_evidence(Observation(content="c", source="s", reliability=0.9))
+        noded = loop._build_evidence(Observation(content="c", source="s", reliability=0.9,
+                                                 node="edge-a", kind="metrics"))
+        expected = hashlib.sha256(
+            json.dumps({"content": "c", "source": "s"}, sort_keys=True).encode()
+        ).hexdigest()[:32]
+        assert plain.context_hash == expected
+        assert noded.context_hash != expected
 
 
 class TestLongHorizonStability:

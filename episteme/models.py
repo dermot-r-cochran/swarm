@@ -51,6 +51,15 @@ class Evidence:
         context_hash:  SHA-256 hash of the originating context.
         timestamp:     UTC timestamp of when the evidence was generated.
         id:            Unique identifier (auto-generated if not provided).
+        node:          The node that sent it, for evidence received from a
+                       peer (ADR-0007); empty when there is none to record.
+        kind:          The kind of observation, within which trust in the node
+                       is held (ADR-0007 s. 2); empty without a node.
+
+    ``node`` and ``kind`` are part of the id, so the same report from two
+    nodes is two records. They attribute a record and never weigh it: the
+    weight is ``reliability``, which the receiving node derives from its own
+    record of the source.
     """
 
     summary: str
@@ -58,12 +67,16 @@ class Evidence:
     context_hash: str
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     id: str | None = field(default=None)
+    node: str = ""
+    kind: str = ""
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.reliability <= 1.0:
             raise ValueError(
                 f"Evidence reliability must be in [0, 1], got {self.reliability}"
             )
+        if self.kind and not self.node:
+            raise ValueError("Evidence kind is held per node: a kind needs a node")
         if self.id is None:
             payload = json.dumps(
                 {
@@ -71,6 +84,8 @@ class Evidence:
                     "reliability": self.reliability,
                     "context_hash": self.context_hash,
                     "timestamp": self.timestamp.isoformat(),
+                    "node": self.node,
+                    "kind": self.kind,
                 },
                 sort_keys=True,
             )
