@@ -780,8 +780,9 @@ class SourceLedger:
         *relies_on* names the facets that matter here; None means all of them.
         A facet never checked is left out rather than counted as neutral, so
         a check not yet made neither lowers nor raises trust (ADR-0007 s. 4).
-        GUESS: the least, so a source is relied on no further than its weakest
-        facet that matters; any other combining rule would add figures.
+        The least, so a source is relied on no further than its weakest facet
+        that matters; any other combining rule would add figures (settled by
+        the author, 23 November 2026).
         """
         wanted = self.policy.facet_names if relies_on is None else frozenset(relies_on)
         unknown = wanted - self.policy.facet_names
