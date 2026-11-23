@@ -121,7 +121,7 @@ def test_unenrolled_forged_and_revoked_packets_are_refused_whole():
     assert not hub.receive(_packet("edge-b"))
     assert [why for _, why in hub.refused] == [
         "not enrolled",
-        "signature does not verify",
+        "integrity: signature does not verify",
         "revoked",
     ]
     assert hub.close_round() == []
@@ -194,7 +194,9 @@ def test_a_packet_in_a_scheme_other_than_the_enrolled_one_is_refused():
     hub, _ = _hub(["edge-a"])
     relabelled = en.sign(_packet("edge-a"), _ToyScheme(b"edge-a"))
     assert not hub.receive(relabelled)
-    assert hub.refused == [("edge-a", "scheme 'toy-sha256' is not the enrolled 'hmac-sha256'")]
+    assert hub.refused == [
+        ("edge-a", "integrity: scheme 'toy-sha256' is not the enrolled 'hmac-sha256'")
+    ]
 
 
 def test_the_scheme_is_covered_by_the_signature():
@@ -214,6 +216,61 @@ def test_enrolment_records_the_scheme_and_a_fingerprint_never_the_secret():
     assert b"s3cret".hex() not in entry.detail and "s3cret" not in repr(en.HmacSha256(b"s3cret"))
     with pytest.raises(ValueError, match="must not be empty"):
         en.HmacSha256(b"")
+
+
+# --- trust does not rest on signatures ----------------------------------------
+
+
+def test_a_signature_never_changes_an_items_weight():
+    ledger = en.TrustLedger()
+    ledger.enrol("signed", en.HmacSha256(b"k"), by="tester", reason="test")
+    ledger.enrol("unsigned", by="tester", reason="test")
+    for node in ("signed", "unsigned"):
+        ledger.set_trust(node, KIND, Fraction(3, 5), by="tester", reason="test")
+    memory = EpistemicMemory()
+    _OPEN.append(memory)
+    belief = Belief("p95 regressed", BeliefType.THEORY, 0.5, "checkout")
+    memory.add_belief(belief)
+    hub = en.EdgeNode("hub", memory, ledger, [en.Route(KIND, belief.id, en.p95_rose)])
+    assert hub.receive(en.packet_from_report("signed", en.HmacSha256(b"k"), REPORT, sent_at="t"))
+    assert hub.receive(en.packet_from_report("unsigned", None, REPORT, sent_at="t"))
+    assert hub.received == [("signed", "verified"), ("unsigned", "unchecked")]
+    offered = {o.node_id: (o.offered, o.applied) for o in hub.close_round()}
+    assert offered["signed"] == offered["unsigned"] == (Fraction(3, 5), Fraction(3, 5))
+
+
+def test_a_node_enrolled_with_a_verifier_must_pass_its_integrity_check():
+    hub, _ = _hub(["edge-a"])
+    unsigned = en.packet_from_report("edge-a", None, REPORT, sent_at="t")
+    assert unsigned.signature == "" and unsigned.scheme == ""
+    assert not hub.receive(unsigned)
+    assert hub.refused == [("edge-a", "integrity: scheme '' is not the enrolled 'hmac-sha256'")]
+
+
+def test_enrolment_without_a_verifier_gives_no_trust():
+    ledger = en.TrustLedger()
+    ledger.enrol("edge-a", by="tester", reason="test")
+    assert ledger.is_enrolled("edge-a") and ledger.verifier("edge-a") is None
+    assert ledger.entries[0].detail == "no integrity check"
+    assert ledger.trust("edge-a", KIND) == en.DEFAULT_TRUST
+
+
+def test_an_impostor_using_an_enrolled_id_is_bounded_by_the_cap_and_by_checks():
+    ledger = en.TrustLedger()
+    ledger.enrol("edge-a", by="tester", reason="test")  # no integrity check: ids can be claimed
+    ledger.set_trust("edge-a", KIND, Fraction(1), by="tester", reason="test")
+    memory = EpistemicMemory()
+    _OPEN.append(memory)
+    belief = Belief("p95 regressed", BeliefType.THEORY, 0.5, "checkout")
+    memory.add_belief(belief)
+    hub = en.EdgeNode("hub", memory, ledger, [en.Route(KIND, belief.id, en.p95_rose)])
+    for n in range(20):
+        forged = en.packet_from_report("edge-a", None, _distinct_report(f"x{n}"), sent_at="t")
+        assert hub.receive(forged)
+        hub.close_round()
+    assert memory.get_belief(belief.id).confidence <= 0.75 + 1e-12
+    ledger.record_check("edge-a", KIND, correct=False, against="inspection", by="tester")
+    assert ledger.trust("edge-a", KIND) < 1
 
 
 # --- trust -------------------------------------------------------------------

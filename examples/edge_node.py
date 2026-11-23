@@ -16,10 +16,12 @@ What a node does
 2. **Sends evidence, not beliefs.** ``packet_from_report`` keeps the report's
    observations and derived results as items, its hypotheses as proposals and
    its unknowns as unknowns, and drops its proposed actions. No belief, no
-   confidence and no trust figure leaves a node. The packet is signed.
+   confidence and no trust figure leaves a node. The packet may be signed, as
+   an integrity check only (see *Trust does not rest on signatures*).
 3. **Admits a peer's packet through the existing rules.** ``EdgeNode.receive``
-   refuses a packet from a node nobody enrolled, a revoked node, or one whose
-   signature does not verify. Each item that a person-declared ``Route`` says
+   refuses a packet from a node nobody enrolled or a revoked node, and, where
+   a person enrolled a verifier for the node, one that fails its integrity
+   check. Each item that a person-declared ``Route`` says
    bears on a belief becomes an *offer* whose weight is the trust a person set
    for that (node, kind) pair, lowered (never raised) by any reliability the
    node stated itself. Hypotheses become ``Claim`` objects, which are
@@ -48,6 +50,31 @@ What a node does
    ``float`` only here, at that boundary, because ``Evidence.reliability`` is
    a float (ADR-0005).
 
+Trust does not rest on signatures
+---------------------------------
+The author's principle (22-23 November 2026): *"Trust is not based on
+cryptographic signatures - key management is a weak link."* So:
+
+- **Weight never depends on a signature.** An item's weight is the trust a
+  person set for its (node, kind) pair, revised only by checked outcomes,
+  lowered by the node's own stated figure. A verified signature adds nothing
+  to it, and an unsigned packet loses nothing by it; a test pins that the two
+  get the same weight.
+- **A signature is an optional integrity check.** A person may enrol a
+  ``Verifier`` for a node; then that node's packets must verify, and one that
+  does not is refused as damaged or tampered, the way a malformed packet
+  would be. A node enrolled without one is admitted unsigned, and each
+  received packet is recorded as ``verified`` or ``unchecked``.
+- **A node id in a packet is a claim, not a proof.** Without a verifier,
+  anyone who can reach the receiver can claim an enrolled id; with one, a
+  stolen or mismanaged key does the same. Neither is assumed away. What
+  bounds the damage is what does not rest on keys: a pair's trust is only
+  what a person set and checks have earned, one group adds at most
+  ``PEER_CAP`` to any belief, the core moves a belief at most
+  ``max_confidence_delta`` per record, and a report later checked wrong
+  lowers the pair's trust. That bound is THEORY, pinned for the cap by a test,
+  not a measured resistance to any attack.
+
 The cryptographic layer
 -----------------------
 Nothing outside the ``Signer``/``Verifier`` section knows how a packet is
@@ -60,7 +87,8 @@ node is refused. A ``Verifier`` also says whether it is ``symmetric`` (its
 holder could sign too), and enrolment records that, so the limit of HMAC is
 on the record rather than only in this docstring. To add a scheme, write one
 class with ``scheme``, ``symmetric``, ``fingerprint``, ``sign`` (sender side)
-and ``verify`` (receiver side).
+and ``verify`` (receiver side). Nothing in trust or aggregation reads a
+signature.
 
 Trust (``TrustLedger``) changes only by an appended entry from a person or a
 checked outcome (ADR-0007 section 4). There is no method that takes another
@@ -75,13 +103,14 @@ Guesses (marked ``GUESS`` in the code; each is the author's call)
   belief no further than 0.75. The figure is a guess, not derived.
 - The round is the window within which a group counts once. ADR-0007 leaves
   the window open; a round is closed by the caller.
-- HMAC-SHA256 is the only signature scheme written. It is in the standard
-  library, but the receiver holds the same secret and could forge a packet,
-  so a real network needs an asymmetric scheme. Signing and verifying sit
-  behind the ``Signer`` and ``Verifier`` interfaces (see *The cryptographic
-  layer* below), so one can be added without touching trust or aggregation.
-  Which scheme, and which library provides it, is the author's call; none is
-  named here (AGENTS.md principle 10).
+- HMAC-SHA256 is the only integrity scheme written. It is in the standard
+  library, but the receiver holds the same secret and could forge a packet.
+  Since trust does not rest on it, that limits integrity, not trust. Another
+  scheme can be added behind the ``Signer`` and ``Verifier`` interfaces;
+  which, if any, is the author's call (AGENTS.md principle 10).
+- Unsigned packets are admitted from a node enrolled without a verifier, and
+  a node enrolled with one must sign. Whether a receiver should require
+  integrity checks for every node is left open.
 - Report data that is a list or a mapping travels as a SHA-256 digest, not in
   full, to keep packets small for an edge link. No packet size, latency or
   power figure is claimed or measured.
@@ -321,7 +350,7 @@ def run_hybrid_agent(
 
 def packet_from_report(
     node_id: str,
-    signer: Signer,
+    signer: Signer | None,
     report: dict,
     *,
     sent_at: str,
@@ -360,7 +389,9 @@ def packet_from_report(
     )
     hypotheses = tuple(h["statement"] for h in report.get("hypotheses", []))
     unknowns = tuple(report.get("unknowns", []))
-    return sign(Packet(node_id, sent_at, items, hypotheses, unknowns), signer)
+    packet = Packet(node_id, sent_at, items, hypotheses, unknowns)
+    # Signing is an integrity check, optional; it never changes a weight.
+    return packet if signer is None else sign(packet, signer)
 
 
 # ----------------------------------------------------------------------
@@ -393,6 +424,7 @@ class TrustLedger:
 
     def __init__(self) -> None:
         self._entries: list[TrustEntry] = []
+        self._enrolled: set[str] = set()
         self._verifiers: dict[str, Verifier] = {}
         self._counts: dict[tuple[str, str], tuple[Fraction, Fraction]] = {}
         self._groups: dict[str, str] = {}
@@ -407,14 +439,29 @@ class TrustLedger:
             raise ValueError("every trust entry needs a person (by) and a reason")
         self._entries.append(entry)
 
-    def enrol(self, node_id: str, verifier: Verifier, *, by: str, reason: str) -> None:
-        """Record the node's verifier: its scheme, whether it is symmetric, its fingerprint."""
-        if node_id in self._verifiers:
+    def enrol(
+        self, node_id: str, verifier: Verifier | None = None, *, by: str, reason: str
+    ) -> None:
+        """Enrol a node, optionally with a verifier for an integrity check.
+
+        Enrolment gives no trust: every (node, kind) pair starts at
+        ``DEFAULT_TRUST`` until a person sets it. A verifier, if given, is
+        recorded by scheme, whether it is symmetric, and fingerprint.
+        """
+        if node_id in self._enrolled:
             raise ValueError(f"node {node_id!r} is already enrolled")
-        kind = "symmetric" if verifier.symmetric else "asymmetric"
-        detail = f"{verifier.scheme} ({kind}) {verifier.fingerprint()}"
+        if verifier is None:
+            detail = "no integrity check"
+        else:
+            kind = "symmetric" if verifier.symmetric else "asymmetric"
+            detail = f"{verifier.scheme} ({kind}) {verifier.fingerprint()}"
         self._append(TrustEntry("enrol", node_id, by, reason, detail=detail))
-        self._verifiers[node_id] = verifier
+        self._enrolled.add(node_id)
+        if verifier is not None:
+            self._verifiers[node_id] = verifier
+
+    def is_enrolled(self, node_id: str) -> bool:
+        return node_id in self._enrolled
 
     def set_trust(
         self, node_id: str, kind: str, trust: Fraction, *, by: str, reason: str
@@ -587,6 +634,7 @@ class EdgeNode:
     claims: list[Claim] = field(default_factory=list)
     unknowns: list[tuple[str, str]] = field(default_factory=list)
     refused: list[tuple[str, str]] = field(default_factory=list)
+    received: list[tuple[str, str]] = field(default_factory=list)
     _pending: list[Offer] = field(default_factory=list)
     _used: dict[tuple[str, str], Fraction] = field(default_factory=dict)
     _evidence_from: dict[str, str] = field(default_factory=dict)
@@ -595,24 +643,32 @@ class EdgeNode:
         """Check a peer's packet and queue its offers for the round.
 
         Returns False, with the reason in ``refused``, if the packet is
-        refused whole: unenrolled, revoked, signed in a scheme other than
-        the one enrolled, or a signature that fails.
+        refused whole: unenrolled, revoked, or failing the integrity check a
+        person enrolled for the node. An admitted packet is recorded in
+        ``received`` as ``verified`` or ``unchecked``; which one has no effect
+        on any weight below.
         """
-        verifier = self.ledger.verifier(packet.node_id)
-        if verifier is None:
+        if not self.ledger.is_enrolled(packet.node_id):
             self.refused.append((packet.node_id, "not enrolled"))
             return False
         if self.ledger.is_revoked(packet.node_id):
             self.refused.append((packet.node_id, "revoked"))
             return False
-        if packet.scheme != verifier.scheme:
-            self.refused.append(
-                (packet.node_id, f"scheme {packet.scheme!r} is not the enrolled {verifier.scheme!r}")
-            )
-            return False
-        if not verifier.verify(packet.body(), packet.signature):
-            self.refused.append((packet.node_id, "signature does not verify"))
-            return False
+        verifier = self.ledger.verifier(packet.node_id)
+        if verifier is None:
+            integrity = "unchecked"
+        else:
+            if packet.scheme != verifier.scheme:
+                self.refused.append((
+                    packet.node_id,
+                    f"integrity: scheme {packet.scheme!r} is not the enrolled {verifier.scheme!r}",
+                ))
+                return False
+            if not verifier.verify(packet.body(), packet.signature):
+                self.refused.append((packet.node_id, "integrity: signature does not verify"))
+                return False
+            integrity = "verified"
+        self.received.append((packet.node_id, integrity))
 
         group = self.ledger.group(packet.node_id)
         for item in packet.items:
@@ -710,10 +766,13 @@ def main(argv: list[str] | None = None) -> str:
         report = run_hybrid_agent(args.hybrid_agent, CHECKOUT_QUESTION, evidence)
         source = f"hybrid-agent --rules-first in {args.hybrid_agent}"
 
-    keys = {n: HmacSha256(f"secret-{n}".encode()) for n in ("edge-a", "edge-b", "edge-c")}
+    # edge-a signs, as an integrity check; edge-b does not. Neither changes trust.
+    keys: dict[str, Signer | None] = {
+        "edge-a": HmacSha256(b"secret-edge-a"), "edge-b": None, "edge-c": None
+    }
     ledger = TrustLedger()
-    for node_id in ("edge-a", "edge-b"):
-        ledger.enrol(node_id, keys[node_id], by="Dermot", reason="worked example")
+    ledger.enrol("edge-a", HmacSha256(b"secret-edge-a"), by="Dermot", reason="worked example")
+    ledger.enrol("edge-b", by="Dermot", reason="worked example")
     ledger.set_trust("edge-a", "compute.compare_windows", Fraction(4, 5),
                      by="Dermot", reason="worked example")
     ledger.set_trust("edge-b", "compute.compare_windows", Fraction(3, 5),
@@ -735,6 +794,8 @@ def main(argv: list[str] | None = None) -> str:
             packet_from_report(node_id, keys[node_id], report, sent_at="2026-11-22T20:00:00Z")
         )
         lines.append(f"{node_id}: packet {'accepted' if accepted else 'refused'}")
+    for node_id, integrity in hub.received:
+        lines.append(f"{node_id}: integrity {integrity}")
     for node_id, why in hub.refused:
         lines.append(f"refused {node_id}: {why}")
     for o in hub.close_round():

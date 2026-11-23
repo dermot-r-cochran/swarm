@@ -44,13 +44,29 @@ nodes repeating each other ends up believed.
 
 ## Decision (proposed)
 
-### 1. Identity is not trust
+### 1. Identity is not trust, and trust does not rest on signatures
 
-Each node has a signing key created on the device. A person enrols the node by
-recording its public key, who enrolled it and when. A report that is unsigned,
-or signed by a key not enrolled, is refused, not down-weighted. A verified
-signature says which node sent a report; it says nothing about whether the
-report is right.
+The author's ruling, 23 November 2026: *"Trust is not based on cryptographic
+signatures - key management is a weak link."*
+
+A person enrols a node by recording its name, who enrolled it and when.
+Enrolment gives no trust (section 3). A report from a node nobody enrolled, or
+from a revoked node, is refused.
+
+A signature is an optional integrity check, not a ground for trust. A person
+may enrol a verifier for a node (a public key, or another scheme); that node's
+reports must then pass it, and one that fails is refused as damaged or
+tampered. A node enrolled without one is admitted unsigned. Whether a report
+was signed never changes the weight it is admitted at.
+
+A node's name in a report is therefore a claim, not a proof: without a
+verifier anyone who reaches the receiver can claim it, and with one a stolen
+or mismanaged key does the same. Neither case is assumed away. What bounds the
+damage is what does not rest on keys: trust only as a person set it and
+checked outcomes earned it (sections 3, 4 and 8), the per-record cap of
+ADR-0005, correlation groups (section 5), and a cap on what one group may add
+to any one belief. That bound is THEORY, not a measured resistance to any
+attack.
 
 ### 2. Trust is per node and per kind of observation
 
@@ -161,9 +177,9 @@ this, and limits what a good history is worth:
 
 ### 9. The admission check stays small
 
-Admitting a report needs a signature check and a table lookup for the pair's
-trust and the node's group: no model, no network call, and no state beyond
-the enrolment, trust and group tables. That it fits a small device's budget is
+Admitting a report needs a lookup of the pair's trust and the node's group,
+and an integrity check where one is enrolled: no model, no network call, and
+no state beyond the enrolment, trust and group tables. That it fits a small device's budget is
 THEORY until measured on a stated machine; no measurement exists yet.
 
 ### 10. The figures are set by each node, for its own context
@@ -217,7 +233,8 @@ drop.
   measured probability that the next report is right. The repository holds no
   outcome data.
 - **Resistance to a coordinated attack.** Enrolment by people, per-kind trust,
-  the ADR-0005 cap and correlation groups limit what one stolen key can do;
+  the ADR-0005 cap and correlation groups limit what one stolen key or
+  claimed name can do;
   they do not make the network tolerant of any given share of hostile nodes.
   No such property is claimed or tested.
 - **Catching every switch.** Checks drawn by lot make a switch likely to be
