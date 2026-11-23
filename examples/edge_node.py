@@ -1,11 +1,10 @@
 """
-A first edge node: a prototype of ADR-0006 and ADR-0007, both still Proposed.
+A first edge node: a prototype of ADR-0006 and ADR-0007, both accepted on 23 November 2026.
 
-THEORY, not an accepted design. ADR-0006 says nothing is built in the package
-until it is accepted, so this lives in ``examples/`` and the ``episteme``
-package is unchanged: it gains no module, no dependency on hybrid-agent and no
-new write path. What follows is a prototype to make the two proposals concrete
-enough to accept, change or reject.
+The two records are accepted; this code is still a prototype. It lives in
+``examples/`` and the ``episteme`` package is unchanged: it gains no module, no
+dependency on hybrid-agent and no new write path. Moving any of it into the
+package is a separate change (ADR-0007, Consequences).
 
 What a node does
 ----------------

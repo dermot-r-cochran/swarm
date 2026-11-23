@@ -1,9 +1,8 @@
 # ADR-0007: Trust in an edge node rests on its behaviour over time and its consistency with other data
 
-- **Status:** Proposed
+- **Status:** Accepted (the author, 23 November 2026)
 - **Date:** 2026-11-22
-- **Depends on:** ADR-0006 (Proposed). If ADR-0006 is not accepted, this record
-  lapses with it.
+- **Depends on:** ADR-0006 (Accepted the same day).
 
 ## Context
 
@@ -42,7 +41,7 @@ The failure to avoid is the one AGENTS.md principles 3, 5 and 8 name: trust
 that grows from agreement, volume or a node's own fluency, so that a group of
 nodes repeating each other ends up believed.
 
-## Decision (proposed)
+## Decision
 
 ### 1. Identity is not trust, and trust does not rest on signatures
 
@@ -300,22 +299,30 @@ it: consistency is a degree (section 4), not a tolerance.
 
 ## Consequences
 
-- Nothing is built while ADR-0006 is Proposed. On acceptance of both, `Evidence`
-  gains a source (node and kind), which is a breaking change to its id payload
-  and is decided then, not here.
-- On acceptance, this record gets its guard tests in the same change. The
-  likely guards:
+- Accepted on 23 November 2026 with ADR-0006, after the prototype in
+  `examples/edge_node.py` merged (#47, #48). The prototype stays in
+  `examples/`. Moving it into the `episteme` package is a separate change, and
+  so is giving `Evidence` a source (node and kind), which would break its id
+  payload.
+- Its guards are in `tests/test_example_edge_node.py`, one for each:
   - trust in a pair cannot be raised by reports from other nodes agreeing with
-    it, however many;
+    it, however many: `test_agreement_among_unverified_peers_verifies_nothing`;
   - a report from an unverified pair cannot move a belief, although its
-    trust is the neutral 0.5 that the core's threshold would admit;
+    trust is the neutral 0.5 that the core's threshold would admit:
+    `test_a_new_source_is_neutral_and_unverified_and_sends_only_leads`;
   - a verified pair that fails one check is unverified at once, however long
-    its good record;
-  - no record of passed checks lifts a pair's trust above the ceiling;
-  - a node cannot raise the reliability its own report is admitted at;
-  - revoking a node changes no stored belief;
-  - no figure a node sets for its context can breach a floor of section 10;
-  - no node's figures change the trust another node holds in it.
+    its good record:
+    `test_a_verified_source_checked_wrong_is_suspended_and_nothing_recomputed`;
+  - no record of passed checks lifts a pair's trust above the ceiling:
+    `test_recent_behaviour_counts_most_and_trust_has_a_ceiling`;
+  - a node cannot raise the reliability its own report is admitted at:
+    `test_a_source_can_lower_its_own_weight_but_never_raise_it`;
+  - revoking a node changes no stored belief:
+    `test_revocation_changes_no_belief_and_lists_those_resting_on_the_node`;
+  - no figure a node sets for its context can breach a floor of section 10:
+    `test_policy_refuses_settings_that_change_what_the_mechanism_means`;
+  - no node's figures change the trust another node holds in it:
+    `test_no_figure_a_source_sends_changes_the_trust_held_in_it`.
 - Settled by the author, 22 November 2026: a new node starts neutral and
   unverified (section 3); the design assumes a node may switch (section 8);
   and the remaining figures are set by each node for its own context, within
