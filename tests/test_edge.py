@@ -676,6 +676,16 @@ def test_the_package_never_imports_or_runs_hybrid_agent():
     assert not imported & {"hybrid_agent", "subprocess", "socket", "urllib", "http"}
 
 
+def test_stored_evidence_names_the_node_and_the_context_it_was_weighed_in():
+    hub, belief_id = _hub(["edge-a"])
+    hub.observe_own(REPORT)
+    hub.receive(_packet("edge-a"))
+    hub.close_round()
+    belief = hub.memory.get_belief(belief_id)
+    stored = {(e.node, e.kind) for e in map(hub.memory.get_evidence, belief.evidence_ids)}
+    assert stored == {("edge-a", KIND), (en.SELF, KIND)}
+
+
 # --- refusals and the paths a report can take without moving anything --------
 
 

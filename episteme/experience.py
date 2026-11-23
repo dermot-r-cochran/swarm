@@ -35,6 +35,10 @@ class Observation:
         reliability:  Estimated reliability of the source in [0, 1].
         domain:       Semantic domain relevant to this observation.
         metadata:     Optional key/value metadata.
+        node:         The node that sent it, when it came from a peer; carried
+                      onto the evidence (ADR-0007).
+        kind:         The kind of observation, within which trust in the node
+                      is held; needs a node.
     """
 
     content: str
@@ -42,6 +46,8 @@ class Observation:
     reliability: float
     domain: str = "general"
     metadata: dict = field(default_factory=dict)
+    node: str = ""
+    kind: str = ""
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.reliability <= 1.0:
@@ -161,7 +167,7 @@ class ExperienceLoop:
     def _build_evidence(self, observation: Observation) -> Evidence:
         """
         Convert an Observation into an Evidence object, deduplicating by
-        context_hash (content + source).
+        context_hash (content + source, and node and kind where given).
 
         Raises
         ------
@@ -171,10 +177,14 @@ class ExperienceLoop:
             reliability for the same context is an unresolvable ambiguity —
             failing loudly beats silently keeping either value.
         """
-        context_payload = json.dumps(
-            {"content": observation.content, "source": observation.source},
-            sort_keys=True,
-        )
+        context: dict[str, str] = {"content": observation.content, "source": observation.source}
+        # Only where given, so an observation without a node keeps the
+        # context hash it always had and still meets its stored duplicate.
+        if observation.node:
+            context["node"] = observation.node
+        if observation.kind:
+            context["kind"] = observation.kind
+        context_payload = json.dumps(context, sort_keys=True)
         context_hash = hashlib.sha256(context_payload.encode()).hexdigest()[:32]
 
         # Reuse existing evidence with the same context to enable duplicate detection
@@ -195,6 +205,8 @@ class ExperienceLoop:
             reliability=observation.reliability,
             context_hash=context_hash,
             timestamp=datetime.now(UTC),
+            node=observation.node,
+            kind=observation.kind,
         )
 
     def _apply_to_belief(

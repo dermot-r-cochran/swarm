@@ -44,6 +44,20 @@ class TestEvidence:
         e = Evidence(summary="x", reliability=0.5, context_hash="h")
         assert e.timestamp.tzinfo is not None
 
+    def test_the_sending_node_and_kind_are_part_of_the_id(self):
+        at = datetime(2026, 11, 23, tzinfo=UTC)
+        plain = Evidence(summary="x", reliability=0.5, context_hash="h", timestamp=at)
+        assert (plain.node, plain.kind) == ("", "")
+        from_a = Evidence(summary="x", reliability=0.5, context_hash="h", timestamp=at,
+                          node="edge-a", kind="metrics")
+        from_b = Evidence(summary="x", reliability=0.5, context_hash="h", timestamp=at,
+                          node="edge-b", kind="metrics")
+        assert len({plain.id, from_a.id, from_b.id}) == 3
+
+    def test_a_kind_needs_a_node(self):
+        with pytest.raises(ValueError, match="needs a node"):
+            Evidence(summary="x", reliability=0.5, context_hash="h", kind="metrics")
+
 
 # ---------------------------------------------------------------------------
 # Belief

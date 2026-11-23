@@ -300,9 +300,12 @@ it: consistency is a degree (section 4), not a tolerance.
 ## Consequences
 
 - Accepted on 23 November 2026 with ADR-0006, after the prototype merged
-  (#47, #48), and built the same day as `episteme/edge.py`. Giving `Evidence`
-  a source (node and kind), which would break its id payload, is a separate
-  change; until then the source travels in the evidence's own source string.
+  (#47, #48), and built the same day as `episteme/edge.py`. The same day,
+  at the author's word, `Evidence` gained its source: `node` and `kind`, both
+  in its id payload, so every new evidence id changed. They attribute a
+  record and never weigh it. A store written before then gains the two
+  columns on open, and its records read back with both empty; none is
+  rewritten (ADR-0002).
 - Its guards are in `tests/test_edge.py`, one for each:
   - trust in a pair cannot be raised by reports from other nodes agreeing with
     it, however many: `test_agreement_among_unverified_peers_verifies_nothing`;

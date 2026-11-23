@@ -68,6 +68,13 @@ class TestEvidenceStorage:
     def test_get_missing_evidence_returns_none(self, mem):
         assert mem.get_evidence("nonexistent") is None
 
+    def test_the_sending_node_and_kind_round_trip(self, mem):
+        e = make_evidence(node="edge-a", kind="metrics")
+        mem.add_evidence(e)
+        fetched = mem.get_evidence(e.id)
+        assert (fetched.node, fetched.kind) == ("edge-a", "metrics")
+        assert fetched.id == e.id
+
     def test_add_evidence_idempotent(self, mem):
         e = make_evidence()
         mem.add_evidence(e)
@@ -351,6 +358,28 @@ class TestOnDisk:
     close and reopen, what a second connection sees while the store writes,
     and what a failed revision leaves behind. ADR-0002 promises a durable
     trail; these are the tests that read it back from the disk."""
+
+    def test_evidence_written_before_it_had_a_source_reads_back_unchanged(self, tmp_path):
+        # A store from before evidence carried its node and kind: the columns
+        # are added on open, old rows read back with both empty, none rewritten.
+        db = tmp_path / "old.db"
+        old = sqlite3.connect(db)
+        old.execute(
+            "CREATE TABLE evidence (id TEXT PRIMARY KEY, summary TEXT NOT NULL, "
+            "reliability REAL NOT NULL, context_hash TEXT NOT NULL, timestamp TEXT NOT NULL)"
+        )
+        old.execute("INSERT INTO evidence VALUES ('e-old', 'old', 0.5, 'ctx', "
+                    "'2026-01-01T00:00:00+00:00')")
+        old.commit()
+        old.close()
+        with EpistemicMemory(db) as store:
+            fetched = store.get_evidence("e-old")
+            assert (fetched.id, fetched.summary, fetched.node, fetched.kind) == (
+                "e-old", "old", "", ""
+            )
+            e = make_evidence(node="edge-a", kind="metrics")
+            store.add_evidence(e)
+            assert store.get_evidence(e.id).node == "edge-a"
 
     def test_beliefs_and_revisions_survive_close_and_reopen(self, tmp_path):
         db = tmp_path / "episteme.db"

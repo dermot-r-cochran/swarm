@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS evidence (
     summary      TEXT NOT NULL,
     reliability  REAL NOT NULL,
     context_hash TEXT NOT NULL,
-    timestamp    TEXT NOT NULL
+    timestamp    TEXT NOT NULL,
+    node         TEXT NOT NULL DEFAULT '',
+    kind         TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS belief_revisions (
@@ -110,6 +112,8 @@ def _row_to_evidence(row: sqlite3.Row) -> Evidence:
         reliability=row["reliability"],
         context_hash=row["context_hash"],
         timestamp=datetime.fromisoformat(row["timestamp"]),
+        node=row["node"],
+        kind=row["kind"],
     )
 
 
@@ -184,6 +188,15 @@ class EpistemicMemory:
         for column in ("alpha", "beta"):
             if column not in columns:
                 self._conn.execute(f"ALTER TABLE beliefs ADD COLUMN {column} REAL")
+        # A database created before evidence had a source lacks its columns.
+        # Adding them gives old records an empty node and kind, which is what
+        # they recorded: no row is rewritten (ADR-0002).
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(evidence)")}
+        for column in ("node", "kind"):
+            if column not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE evidence ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
+                )
         self._conn.commit()
 
     @contextmanager
@@ -206,8 +219,8 @@ class EpistemicMemory:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO evidence
-                    (id, summary, reliability, context_hash, timestamp)
-                VALUES (?, ?, ?, ?, ?)
+                    (id, summary, reliability, context_hash, timestamp, node, kind)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     evidence.id,
@@ -215,6 +228,8 @@ class EpistemicMemory:
                     evidence.reliability,
                     evidence.context_hash,
                     evidence.timestamp.isoformat(),
+                    evidence.node,
+                    evidence.kind,
                 ),
             )
 

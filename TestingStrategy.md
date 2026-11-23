@@ -15,11 +15,12 @@ future change breaches an ADR, not to exercise a feature.
 
 One test file per module (plus `test_public_api.py` for the package's
 exported surface, `test_properties.py` for the property suite and
-`test_check_docs.py` for the doc check), 314 tests total:
+`test_check_docs.py` for the doc check), 321 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
-  auto-generated ids, UTC timestamps; and **ADR-0005 (Beta posterior
+  auto-generated ids, UTC timestamps, the sending node and kind in the id
+  and a kind refused without a node; and **ADR-0005 (Beta posterior
   confidence)**: a new belief's prior at its confidence, and the guard
   `test_confidence_cannot_be_asserted_apart_from_counts` — a confidence that
   is not the mean of its counts is refused. Its twin on the store is
@@ -36,6 +37,8 @@ exported surface, `test_properties.py` for the property suite and
   or `sqlite3`, so a write path fails CI the moment it is imported, at any
   nesting depth. Its `FORBIDDEN` set is the place to widen.
 - `test_memory.py` — the append-only store: idempotent evidence writes,
+  an evidence record's node and kind round-tripped, and read back empty from
+  a store written before they existed, with no row rewritten,
   duplicate-belief rejection, revision history appending with previous state
   preserved, and `test_beliefs_never_deleted` — the direct guard on
   **ADR-0002 (append-only revision memory)**. `TestOnDisk` (added
@@ -53,7 +56,9 @@ exported surface, `test_properties.py` for the property suite and
   string literals for an UPDATE, DELETE or REPLACE against either table, and
   checks its own pattern against statements it must and must not catch.
   `TestBetaCounts` also opens a file built with the pre-ADR-0005 schema.
-- `test_experience.py` — the observe→revise loop end to end, including the
+- `test_experience.py` — the observe→revise loop end to end (an
+  observation's node and kind reach the stored evidence, and one without a
+  node keeps the context hash it always had), including the
   anti-drift guards, each driven through the real loop path:
   `test_no_drift_without_evidence` (turns that record observations naming no
   belief leave its confidence byte-identical),
@@ -146,7 +151,7 @@ exported surface, `test_properties.py` for the property suite and
   counts once; one source, or an impostor using its name, cannot take a
   uniform prior past 0.75; independent groups each bring their own cap;
   weight is conserved exactly in any input order; revocation changes no
-  belief. Refusals: malformed settings and records are refused, a finding
+  belief; stored evidence names the node and the context it was weighed in. Refusals: malformed settings and records are refused, a finding
   on an unverified source suspends nothing, reports that cannot be compared
   or routed leave the record alone, and the same report at a new weight is
   refused, not rewritten. And the module never imports or runs hybrid-agent
