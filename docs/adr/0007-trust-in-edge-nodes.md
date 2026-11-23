@@ -124,6 +124,16 @@ check count:
   once. A source cannot be raised by sources that nobody has checked, so
   agreement among unverified peers verifies nothing. A mismatch is kept as a
   dispute, never dropped.
+- **Consistency is a degree.** A comparison returns how far two reports
+  agree, from 0 to 1, not a pass or a fail at a tolerance's edge (the
+  author's direction, 23 November 2026, that an arbitrary figure be fuzzy or
+  abstracted out). A check of degree *d* adds *d* of its weight to α and
+  *1 - d* to β, so a near miss costs a little and a wide one a lot. Where a
+  yes or no is still needed (whether a check verifies a new pair, whether it
+  is a dispute or a self-contradiction), a degree counts as agreement when
+  what it adds to α outweighs what it adds to β, so the cut follows from how
+  heavily the node weighs a failure and adds no figure of its own. How the
+  degree is drawn from the data is each node's, per kind.
 
 Each check is appended with what was checked against what.
 
@@ -182,8 +192,8 @@ limits what a good history is worth:
 - **Self-contradiction is a failure.** A report on a belief is compared with
   what the same node said before on that belief, in the same context. A
   contradiction is kept as a dispute and counts as a failure.
-- **Slow drift is a failure.** A subtle shift can keep every report inside the
-  tolerance of each comparison while all of them lean one way. The receiving
+- **Slow drift is a failure.** A subtle shift can keep every report agreeing
+  well enough with each comparison while all of them lean one way. The receiving
   node averages a node's signed deviations from independent data over a
   stated window of reports; a mean beyond a stated limit is drift, and counts
   as a failure.
@@ -231,9 +241,9 @@ drop.
 
 The author, 23 November 2026: *"If the figures are arbitrary then they are
 either fuzzy or should be abstracted out."* So no figure is built into the
-mechanism, not even as a default: each is a parameter the node supplies. A
-crisp figure may later give way to a fuzzy one (a degree of consistency in
-place of a tolerance, say); that is open.
+mechanism, not even as a default: each is a parameter the node supplies. And
+where a crisp figure would put a cliff in the record, a fuzzy one replaces
+it: consistency is a degree (section 4), not a tolerance.
 
 - **The node that judges sets them, never the node judged.** Each node keeps
   its own memory (ADR-0006), so each node holds its own trust in its peers and

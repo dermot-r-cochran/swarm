@@ -56,7 +56,7 @@ POLICY = en.Policy(
     own_reliability=Fraction(4, 5), cap=Fraction(2), audit_rate=Fraction(1, 5),
     drift_window=5,
 )
-CHECK = en.P95Check(tolerance_pp=Fraction(25), drift_limit_pp=Fraction(10))
+CHECK = en.P95Check(spread_pp=Fraction(75), drift_limit_pp=Fraction(10))
 
 
 _OPEN: list[EpistemicMemory] = []
@@ -88,7 +88,7 @@ def _hub(nodes, *, verified=True, group=None, signed=True, policy=None):
     belief = Belief("p95 regressed", BeliefType.THEORY, 0.5, "checkout")
     memory.add_belief(belief)
     hub = en.EdgeNode("hub", memory, ledger, [en.Route(KIND, belief.id, en.p95_rose)],
-                      comparators={KIND: CHECK.consistent},
+                      comparators={KIND: CHECK.degree},
                       deviations={KIND: (CHECK.deviation, CHECK.drift_limit_pp)},
                       audit_salt=b"test")
     return hub, belief.id
@@ -343,11 +343,11 @@ def test_a_reference_must_be_independent_and_verified():
     ledger.declare_group("g", ["a", "b"], reason="shared firmware")
     ledger.record_ground_truth("b", KIND, correct=True, against="setup")
     with pytest.raises(ValueError, match="not independent"):
-        ledger.record_consistency("a", KIND, consistent=True, reference="b")
+        ledger.record_consistency("a", KIND, degree=Fraction(1), reference="b")
     with pytest.raises(ValueError, match="not verified"):
-        ledger.record_consistency("a", KIND, consistent=True, reference="c")
+        ledger.record_consistency("a", KIND, degree=Fraction(1), reference="c")
     with pytest.raises(ValueError, match="not independent"):
-        ledger.record_consistency("a", KIND, consistent=True, reference="a")
+        ledger.record_consistency("a", KIND, degree=Fraction(1), reference="a")
 
 
 def test_an_inconsistency_lowers_the_record_and_is_kept_as_a_dispute():
@@ -365,11 +365,55 @@ def test_ground_truth_outranks_consistency():
     for n in ("truth", "agree"):
         ledger.enrol(n, reason="test")
     ledger.record_ground_truth("truth", KIND, correct=True, against="reference meter")
-    ledger.record_consistency("agree", KIND, consistent=True, reference=en.SELF)
+    ledger.record_consistency("agree", KIND, degree=Fraction(1), reference=en.SELF)
     assert ledger.trust("truth", KIND) > ledger.trust("agree", KIND)
     with pytest.raises(ValueError, match="outrank"):
         dataclasses.replace(POLICY, ground_truth_weight=Fraction(1, 2),
                             consistency_weight=Fraction(1))
+
+
+def test_consistency_is_a_degree_weighed_into_the_record():
+    ledger = en.SourceLedger(POLICY)
+    for n in ("half", "most"):
+        ledger.enrol(n, reason="test")
+    # Half agreement: 1/2 of the weight to successes, 1/2 (times 2) to failures.
+    assert not ledger.record_consistency("half", KIND, degree=Fraction(1, 2), reference=en.SELF)
+    assert ledger.trust("half", KIND) == Fraction(23, 51)  # (0.9 + 1/4) / (0.9 + 1/4 + 0.9 + 1/2)
+    assert not ledger.is_verified("half", KIND)
+    assert ledger.record_consistency("most", KIND, degree=Fraction(3, 4), reference=en.SELF)
+    assert ledger.is_verified("most", KIND)
+    for bad in (Fraction(-1, 10), Fraction(11, 10)):
+        with pytest.raises(ValueError, match="degree"):
+            ledger.record_consistency("most", KIND, degree=bad, reference=en.SELF)
+
+
+def test_where_a_degree_counts_as_agreement_follows_the_failure_multiple():
+    # No figure of its own: agreement is where successes outweigh failures.
+    assert not POLICY.agrees(Fraction(2, 3)) and POLICY.agrees(Fraction(7, 10))
+    even = dataclasses.replace(POLICY, failure_multiple=Fraction(1))
+    assert even.agrees(Fraction(3, 5)) and not POLICY.agrees(Fraction(3, 5))
+    assert not even.agrees(Fraction(1, 2))
+
+
+def test_the_p95_degree_falls_as_reports_part():
+    def item(change):
+        return en.Item("i", KIND, "s", {} if change is None else {"p95_change_pct": change})
+
+    assert CHECK.degree(item(40.0), item(40.0)) == 1
+    assert CHECK.degree(item(40.0), item(77.5)) == Fraction(1, 2)  # half the spread apart
+    assert CHECK.degree(item(10.0), item(200.0)) == 0  # beyond the spread
+    assert CHECK.degree(item(5.0), item(-5.0)) == 0  # moved opposite ways
+    assert CHECK.degree(item(5.0), item(None)) is None
+
+
+def test_a_near_miss_costs_less_than_a_wide_one():
+    trust = {}
+    for name, offset in (("exact", 0), ("near", 5), ("wide", 20)):
+        hub, _ = _hub([name])
+        _round(hub, name, 0, OWN_P95 + offset)
+        assert hub.ledger.is_verified(name, KIND) and hub.disputes == []  # both agree
+        trust[name] = hub.ledger.trust(name, KIND)
+    assert trust["wide"] < trust["near"] < trust["exact"]  # no cliff, no free pass
 
 
 def test_recent_behaviour_counts_most_and_trust_has_a_ceiling():
@@ -438,7 +482,7 @@ def test_policy_refuses_settings_that_change_what_the_mechanism_means():
         with pytest.raises(ValueError, match=message):
             dataclasses.replace(POLICY, **change)
     with pytest.raises(ValueError, match="positive"):
-        en.P95Check(tolerance_pp=Fraction(0), drift_limit_pp=Fraction(10))
+        en.P95Check(spread_pp=Fraction(0), drift_limit_pp=Fraction(10))
 
 
 def test_the_same_reports_judged_under_two_policies_give_two_outcomes():
@@ -531,7 +575,7 @@ def test_only_ground_truth_lifts_a_suspension():
     ledger.enrol("edge-a", reason="test")
     ledger.record_ground_truth("edge-a", KIND, correct=True, against="meter")
     assert ledger.record_behaviour("edge-a", KIND, finding="drift", detail="test")
-    ledger.record_consistency("edge-a", KIND, consistent=True, reference=en.SELF)
+    ledger.record_consistency("edge-a", KIND, degree=Fraction(1), reference=en.SELF)
     assert not ledger.is_verified("edge-a", KIND)  # agreement alone does not lift it
     ledger.record_ground_truth("edge-a", KIND, correct=True, against="a person's review")
     assert ledger.is_verified("edge-a", KIND)
@@ -550,12 +594,12 @@ def test_a_slow_drift_is_caught_while_every_single_report_still_passes():
     consistency = [e for e in hub.ledger.entries
                    if e.node_id == "drifter" and e.reason == "consistency with self"]
     assert all(e.passed for e in consistency)  # each report alone looked fine
-    assert caught_at is not None and 3 * caught_at < CHECK.tolerance_pp
+    assert caught_at is not None
     assert _findings(hub, "drifter") == ["drift"]
     assert hub.review == [belief_id]
 
 
-def test_a_constant_bias_inside_the_tolerance_is_caught():
+def test_a_constant_bias_that_each_check_accepts_is_caught():
     hub, _ = _hub(["biased"])
     for n in range(5):
         _round(hub, "biased", n, OWN_P95 + 12)

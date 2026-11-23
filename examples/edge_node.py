@@ -139,7 +139,7 @@ this, and a good record buys no exemption from any of the following:
 - **Self-contradiction.** A source's new item on a belief is compared with
   what it said before on the same belief, in the same context. A
   contradiction is kept as a dispute and suspends a verified source.
-- **Slow drift.** Each report can sit inside the comparator's tolerance while
+- **Slow drift.** Each report can agree well enough with its reference while
   all of them lean one way. The node averages a source's signed deviations
   from independent references over ``drift_window`` reports, and a mean
   beyond the kind's limit is drift: it suspends a verified source.
@@ -164,14 +164,37 @@ Figures: none built in
 abstracted out"* (the author, 23 November 2026). Every figure the mechanism
 uses is abstracted out: ``Policy`` (check weights, failure multiple,
 discount, ceiling, own reliability, cap, audit rate, drift window) and
-``P95Check`` (tolerance and drift limit) have no defaults, and a node that
+``P95Check`` (spread and drift limit) have no defaults, and a node that
 builds one must supply each. ``Policy`` refuses only settings that would make
 the mechanism mean something else, such as consistency outranking ground
 truth or trust falling slower than it rises. The figures in ``main`` are the
 worked example's inputs, not the node's. ``NEUTRAL``, Beta(1, 1), is not one
 of them: it is the author's ruling that a new source is neutral (ADR-0007
-s. 3). Making a crisp setting fuzzy, such as a degree of consistency in place
-of a tolerance, is open and not built.
+s. 3).
+
+Consistency is a degree, not a pass or a fail
+---------------------------------------------
+A comparator returns how far two reports agree, a degree from 0 (not at all)
+to 1 (fully), or None where they cannot be compared. A crisp tolerance would
+be one more arbitrary figure with a cliff at its edge, where a report one
+point inside counts in full and one point outside counts against. Instead a
+check of degree *d* adds ``d`` of its weight to the source's successes and
+``1 - d`` to its failures (times ``failure_multiple``), so a near miss costs
+a little and a wide one costs a lot.
+
+Some steps still need a yes or a no: whether a check verifies a new pair,
+and whether it is a dispute or a self-contradiction. Those use no new figure.
+A degree *agrees* when what it adds to the successes outweighs what it adds
+to the failures, ``d > failure_multiple * (1 - d)``; with a failure multiple
+of 2 that is above 2/3. The cut follows from how heavily the node already
+weighs a failure, so a node that is harder on failures is harder to agree
+with.
+
+How the degree is drawn from the data is the comparator's, and a node
+supplies its own. ``P95Check.degree`` is the worked example's: 0 if the two
+moved opposite ways, otherwise falling in a straight line from 1 at equal
+changes to 0 at ``spread_pp`` apart. The straight line is a guess; any shape
+that gives 1 for identical reports and falls as they part would serve.
 
 Design guesses (marked ``GUESS`` in the code; each is the author's call)
 -----------------------------------------------------------------------
@@ -497,7 +520,8 @@ class Policy:
     #: lone source later found right is not out-voted by agreement.
     consistency_weight: Fraction
     #: A failed check weighs this many times a passed one; above 1, trust
-    #: falls faster than it rises (ADR-0007 s. 8).
+    #: falls faster than it rises (ADR-0007 s. 8). It also sets where a
+    #: degree of consistency counts as agreement (``agrees``).
     failure_multiple: Fraction
     #: Both counts are multiplied by this at every new outcome, so recent
     #: behaviour counts most and a long good run cannot cushion a switch.
@@ -534,6 +558,14 @@ class Policy:
             raise ValueError("audit_rate must be in (0, 1]: checks never stop")
         if self.drift_window < 2:
             raise ValueError("drift_window must be at least 2")
+
+    def agrees(self, degree: Fraction) -> bool:
+        """Whether a degree of consistency counts as agreement where a yes or no is needed.
+
+        It does when the share it adds to successes outweighs the share it adds
+        to failures: ``degree > failure_multiple * (1 - degree)``. No new figure.
+        """
+        return degree > self.failure_multiple * (1 - degree)
 
 
 @dataclass(frozen=True)
@@ -630,8 +662,8 @@ class SourceLedger:
         once: it returns to unverified (ADR-0007 s. 8).
         """
         was_verified = (node_id, context) in self._verified
-        self._outcome(node_id, context, self.policy.ground_truth_weight, correct,
-                      f"ground truth: {against}")
+        self._outcome(node_id, context, self.policy.ground_truth_weight,
+                      Fraction(int(correct)), f"ground truth: {against}", passed=correct)
         if correct:
             self._verified.add((node_id, context))
             self._suspended.discard((node_id, context))
@@ -642,26 +674,36 @@ class SourceLedger:
         return False
 
     def record_consistency(
-        self, node_id: str, context: str, *, consistent: bool, reference: str
-    ) -> None:
-        """Record whether a report agreed with data from an independent source.
+        self, node_id: str, context: str, *, degree: Fraction, reference: str
+    ) -> bool:
+        """Record how far a report agreed with data from an independent source.
+
+        *degree* runs from 0 (no agreement) to 1 (full): ``degree`` of the
+        consistency weight goes to the source's successes and ``1 - degree``
+        (times the failure multiple) to its failures. Returns whether the
+        degree counts as agreement (``Policy.agrees``).
 
         The reference must be the node's own observation or a source verified
         for the same context, in a different correlation group; anything else is
         refused, so sources cannot raise one another from nothing and agreement
-        inside a group is not evidence. A pass verifies an unverified pair; a
-        failure lowers the record without suspending (only ground truth
+        inside a group is not evidence. Agreement verifies an unverified pair;
+        disagreement lowers the record without suspending (only ground truth
         suspends).
         """
+        degree = Fraction(degree)
+        if not 0 <= degree <= 1:
+            raise ValueError("degree must be in [0, 1]")
         if reference == node_id or self.group(reference) == self.group(node_id):
             raise ValueError(f"{reference!r} is not independent of {node_id!r}")
         if reference != SELF and not self.is_verified(reference, context):
             raise ValueError(f"{reference!r} is not verified for {context!r}")
-        self._outcome(node_id, context, self.policy.consistency_weight, consistent,
-                      f"consistency with {reference}")
-        if consistent and (node_id, context) not in self._suspended:
+        agrees = self.policy.agrees(degree)
+        self._outcome(node_id, context, self.policy.consistency_weight, degree,
+                      f"consistency with {reference}", passed=agrees)
+        if agrees and (node_id, context) not in self._suspended:
             # Agreement verifies a new pair; only ground truth lifts a suspension.
             self._verified.add((node_id, context))
+        return agrees
 
     def record_behaviour(self, node_id: str, context: str, *, finding: str, detail: str) -> bool:
         """Record a finding in the source's own behaviour: self-contradiction or drift.
@@ -674,8 +716,8 @@ class SourceLedger:
         if finding not in ("self-contradiction", "drift"):
             raise ValueError(f"unknown finding {finding!r}")
         was_verified = (node_id, context) in self._verified
-        self._outcome(node_id, context, self.policy.consistency_weight, False,
-                      f"{finding}: {detail}")
+        self._outcome(node_id, context, self.policy.consistency_weight, Fraction(0),
+                      f"{finding}: {detail}", passed=False)
         if was_verified:
             self._suspend(node_id, context, f"{finding}: {detail}")
             return True
@@ -686,15 +728,13 @@ class SourceLedger:
         self._suspended.add((node_id, context))
         self._append(RecordEntry("suspend", node_id, reason, context))
 
-    def _outcome(self, node_id: str, context: str, weight: Fraction, passed: bool,
-                 reason: str) -> None:
+    def _outcome(self, node_id: str, context: str, weight: Fraction, degree: Fraction,
+                 reason: str, *, passed: bool) -> None:
+        """Discount the record, then add *degree* of *weight* as success, the rest as failure."""
         alpha, beta = self._counts.get((node_id, context), NEUTRAL)
         d = self.policy.discount
-        alpha, beta = alpha * d, beta * d
-        if passed:
-            alpha += weight
-        else:
-            beta += weight * self.policy.failure_multiple
+        alpha = alpha * d + weight * degree
+        beta = beta * d + weight * (1 - degree) * self.policy.failure_multiple
         self._append(RecordEntry("check", node_id, reason, context, passed, alpha, beta))
         self._counts[(node_id, context)] = (alpha, beta)
 
@@ -850,15 +890,15 @@ class _Seen:
 class EdgeNode:
     """A node's receiving side: its own store, its own record of sources, its routes.
 
-    *comparators* say, per kind, whether two items about the same belief are
-    consistent (True), inconsistent (False) or not comparable (None).
+    *comparators* say, per kind, how far two items about the same belief
+    agree: a degree from 0 to 1, or None where they cannot be compared.
     """
 
     node_id: str
     memory: EpistemicMemory
     ledger: SourceLedger
     routes: list[Route]
-    comparators: dict[str, Callable[[Item, Item], bool | None]] = field(default_factory=dict)
+    comparators: dict[str, Callable[[Item, Item], Fraction | None]] = field(default_factory=dict)
     #: Per kind: a signed deviation of an item from a reference, and the limit
     #: on its recent mean beyond which a source is drifting.
     deviations: dict[str, tuple[Callable[[Item, Item], Fraction | None], Fraction]] = field(
@@ -1002,22 +1042,22 @@ class EdgeNode:
                     or (ref.node_id, ref.context) not in verified
                 ):
                     continue
-                consistent = compare(s.item, ref.item)
-                if consistent is None:
+                degree = compare(s.item, ref.item)
+                if degree is None:
                     continue
                 groups_used.add(ref.group)  # an independent group counts once
-                self.ledger.record_consistency(
-                    s.node_id, s.context, consistent=consistent, reference=ref.node_id
+                agrees = self.ledger.record_consistency(
+                    s.node_id, s.context, degree=degree, reference=ref.node_id
                 )
                 self._track_drift(s, ref)
-                if not consistent:
+                if not agrees:
                     # Disagreement is kept, never dropped (AGENTS.md 5).
                     self.disputes.append(
                         (s.node_id, s.item.item_id, ref.node_id, ref.item.item_id)
                     )
 
     def _check_against_own_history(
-        self, s: _Seen, compare: Callable[[Item, Item], bool | None]
+        self, s: _Seen, compare: Callable[[Item, Item], Fraction | None]
     ) -> None:
         """A source's new item must agree with what it said before on the same belief.
 
@@ -1027,7 +1067,10 @@ class EdgeNode:
         """
         key = (s.node_id, s.context, s.belief_id)
         for earlier in self._history.get(key, []):
-            if earlier.item_id != s.item.item_id and compare(s.item, earlier) is False:
+            if earlier.item_id == s.item.item_id:
+                continue
+            degree = compare(s.item, earlier)
+            if degree is not None and not self.ledger.policy.agrees(degree):
                 self.disputes.append((s.node_id, s.item.item_id, s.node_id, earlier.item_id))
                 if self.ledger.record_behaviour(
                     s.node_id, s.context, finding="self-contradiction",
@@ -1040,7 +1083,7 @@ class EdgeNode:
     def _track_drift(self, s: _Seen, ref: _Seen) -> None:
         """Average the source's recent signed deviations from independent references.
 
-        Each report can sit inside the comparator's tolerance while all of
+        Each report can agree well enough with its reference while all of
         them lean one way; the mean over ``drift_window`` catches that.
         """
         spec = self.deviations.get(s.item.kind)
@@ -1167,25 +1210,32 @@ def _p95(a: Item, b: Item) -> tuple[Fraction, Fraction] | None:
 class P95Check:
     """How a node compares two p95 comparisons. Both figures are the node's own.
 
-    *tolerance_pp*: two comparisons agree if p95 moved the same way and
-    within this many percentage points. *drift_limit_pp*: a mean lean beyond
-    this over the drift window is drift, though each report may sit inside
-    the tolerance. No default for either.
+    *spread_pp*: how many percentage points apart two changes in the same
+    direction must be for their degree of consistency to reach 0.
+    *drift_limit_pp*: a mean lean beyond this over the drift window is drift,
+    though each report may agree well enough on its own. No default for either.
     """
 
-    tolerance_pp: Fraction
+    spread_pp: Fraction
     drift_limit_pp: Fraction
 
     def __post_init__(self) -> None:
-        if self.tolerance_pp <= 0 or self.drift_limit_pp <= 0:
-            raise ValueError("tolerance_pp and drift_limit_pp must be positive")
+        if self.spread_pp <= 0 or self.drift_limit_pp <= 0:
+            raise ValueError("spread_pp and drift_limit_pp must be positive")
 
-    def consistent(self, a: Item, b: Item) -> bool | None:
+    def degree(self, a: Item, b: Item) -> Fraction | None:
+        """0 if p95 moved opposite ways; else 1 at equal changes, falling to 0 at the spread.
+
+        GUESS: the straight-line fall. Any shape that is 1 for identical
+        reports and falls as they part would serve.
+        """
         pair = _p95(a, b)
         if pair is None:
             return None
         x, y = pair
-        return (x > 0) == (y > 0) and abs(x - y) <= self.tolerance_pp
+        if (x > 0) != (y > 0):
+            return Fraction(0)
+        return max(Fraction(0), 1 - abs(x - y) / self.spread_pp)
 
     def deviation(self, a: Item, b: Item) -> Fraction | None:
         """Signed deviation: how far *a*'s p95 change sits above *b*'s."""
@@ -1215,7 +1265,7 @@ def main(argv: list[str] | None = None) -> str:
         own_reliability=Fraction(4, 5), cap=Fraction(2), audit_rate=Fraction(1, 5),
         drift_window=5,
     )
-    check = P95Check(tolerance_pp=Fraction(25), drift_limit_pp=Fraction(10))
+    check = P95Check(spread_pp=Fraction(75), drift_limit_pp=Fraction(10))
     ledger = SourceLedger(policy)
     # edge-a signs, as an integrity check; edge-b does not. Neither changes trust.
     ledger.enrol("edge-a", HmacSha256(b"secret-edge-a"), reason="worked example")
@@ -1233,7 +1283,7 @@ def main(argv: list[str] | None = None) -> str:
     assert belief.id is not None
     kind = "compute.compare_windows"
     hub = EdgeNode("hub", memory, ledger, [Route(kind, belief.id, p95_rose)],
-                   comparators={kind: check.consistent},
+                   comparators={kind: check.degree},
                    deviations={kind: (check.deviation, check.drift_limit_pp)},
                    audit_salt=b"worked-example")
 
