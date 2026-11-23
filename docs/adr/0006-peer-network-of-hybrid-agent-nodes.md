@@ -31,7 +31,9 @@ a hybrid-agent.
 
 - **What a node contributes is its report, read through the existing rules.**
   A node's observations and derived results arrive as evidence with the node
-  as their source and a reliability set by people, not by the node. Its
+  as their source and a reliability the receiving node derives from its own
+  record of that node (ADR-0007, as redrafted 23 November 2026), never one
+  the node states for itself or a person or a peer sets. Its
   hypotheses arrive as claims, which are proposals, never beliefs. Its
   unknowns stay unknowns. Its proposed actions are not evidence of anything.
 - **Peers agreeing is not evidence.** The core already refuses language,

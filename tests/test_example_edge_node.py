@@ -2,18 +2,21 @@
 Tests for examples/edge_node.py, the edge-node prototype of ADR-0006 and
 ADR-0007 (both Proposed).
 
-They are the guards those two records name as likely, written against the
-prototype so the proposals can be judged on running code: a node's hypothesis
-is never stored as a belief, matching reports from correlated nodes count once,
-a pair at the default trust moves no belief, a node cannot raise its own
-weight, peer agreement never changes trust, one group's influence on a belief
-is capped, aggregation is exact and order-independent, and revocation changes
-no belief. The example is outside ``--cov=episteme``; these do not count
-towards the coverage ratchet.
+Trust there rests only on what the author ruled it may (23 November 2026):
+behaviour over time and consistency with other data sources, recorded by the
+receiving node itself. Never on a signature, a peer's vouching or a figure a
+person sets. These tests pin that, together with the guards the two records
+name as likely: a hypothesis is never stored as a belief, correlated sources
+count once, a new source moves no belief, a source cannot raise its own
+weight, one group's influence on a belief is capped, aggregation is exact and
+order-independent, and neither revocation nor suspension recomputes a belief.
+The example is outside ``--cov=episteme``; these do not count towards the
+coverage ratchet.
 """
 
 import hashlib
 import importlib.util
+import inspect
 import json
 import random
 import sys
@@ -32,6 +35,7 @@ REPORT = json.loads(
     )
 )
 KIND = "compute.compare_windows"
+DERIVED = "derived:checkout:before_after_deploy"
 
 
 def _load():
@@ -55,35 +59,48 @@ def _close_stores():
         _OPEN.pop().close()
 
 
-def _hub(nodes, *, trust=Fraction(4, 5), group=None):
-    """A receiving node with one belief at the uniform prior and *nodes* enrolled."""
-    ledger = en.TrustLedger()
+def _hub(nodes, *, verified=True, group=None, signed=True):
+    """A receiving node with one belief at the uniform prior and *nodes* enrolled.
+
+    With *verified*, each node has passed one ground-truth check, the only
+    way a test gives a source weight: no figure can be set.
+    """
+    ledger = en.SourceLedger()
     for node_id in nodes:
-        ledger.enrol(node_id, en.HmacSha256(node_id.encode()), by="tester", reason="test")
-        if trust is not None:
-            ledger.set_trust(node_id, KIND, trust, by="tester", reason="test")
+        verifier = en.HmacSha256(node_id.encode()) if signed else None
+        ledger.enrol(node_id, verifier, reason="test")
+        if verified:
+            ledger.record_ground_truth(node_id, KIND, correct=True, against="setup")
     if group:
-        ledger.declare_group(group, nodes, by="tester", reason="test")
+        ledger.declare_group(group, nodes, reason="test")
     memory = EpistemicMemory()
     _OPEN.append(memory)
     belief = Belief("p95 regressed", BeliefType.THEORY, 0.5, "checkout")
     memory.add_belief(belief)
-    hub = en.EdgeNode("hub", memory, ledger, [en.Route(KIND, belief.id, en.p95_rose)])
+    hub = en.EdgeNode("hub", memory, ledger, [en.Route(KIND, belief.id, en.p95_rose)],
+                      comparators={KIND: en.p95_consistent},
+                      deviations={KIND: (en.p95_deviation, en.P95_DRIFT_LIMIT_PP)},
+                      audit_salt=b"test")
     return hub, belief.id
 
 
-def _packet(node_id, report=REPORT, **kw):
-    return en.packet_from_report(
-        node_id, en.HmacSha256(node_id.encode()), report, sent_at="t", **kw
-    )
+def _packet(node_id, report=REPORT, *, signed=True, **kw):
+    signer = en.HmacSha256(node_id.encode()) if signed else None
+    return en.packet_from_report(node_id, signer, report, sent_at="t", **kw)
 
 
-def _distinct_report(n):
+def _distinct_report(n, p95_change=None):
     """A report whose one derived result has a distinct id, so it is new evidence."""
     report = json.loads(json.dumps(REPORT))
     report["derived"][0]["id"] = f"derived:{n}"
     report["derived"][0]["summary"] = f"comparison {n}"
+    if p95_change is not None:
+        report["derived"][0]["data"]["p95_change_pct"] = p95_change
     return report
+
+
+# 19/28: the neutral Beta(1, 1), discounted by 9/10, plus one ground-truth pass.
+ONE_PASS = Fraction(19, 28)
 
 
 # --- what a packet carries -------------------------------------------------
@@ -115,11 +132,13 @@ def test_a_report_not_awaiting_review_is_refused():
 def test_unenrolled_forged_and_revoked_packets_are_refused_whole():
     hub, _ = _hub(["edge-a", "edge-b"])
     assert not hub.receive(_packet("edge-x"))
+    assert not hub.receive(_packet(en.SELF))  # no source may claim the node's own id
     forged = en.sign(_packet("edge-a"), en.HmacSha256(b"not-the-key"))
     assert not hub.receive(forged)
-    hub.ledger.revoke("edge-b", by="tester", reason="device lost")
+    hub.ledger.revoke("edge-b", reason="device lost")
     assert not hub.receive(_packet("edge-b"))
     assert [why for _, why in hub.refused] == [
+        "not enrolled",
         "not enrolled",
         "integrity: signature does not verify",
         "revoked",
@@ -129,30 +148,30 @@ def test_unenrolled_forged_and_revoked_packets_are_refused_whole():
 
 def test_a_hypothesis_is_held_as_a_claim_and_never_stored_as_a_belief():
     hub, belief_id = _hub(["edge-a"])
-    before = [b.id for b in hub.memory.list_beliefs()]
     hub.receive(_packet("edge-a"))
     hub.close_round()
-    assert [b.id for b in hub.memory.list_beliefs()] == before == [belief_id]
+    assert [b.id for b in hub.memory.list_beliefs()] == [belief_id]
     assert [c.text for c in hub.claims] == [h["statement"] for h in REPORT["hypotheses"]]
     assert all(c.source == "node:edge-a" for c in hub.claims)
 
 
-def test_a_pair_at_the_default_trust_moves_no_belief():
-    hub, belief_id = _hub(["edge-a"], trust=None)
+def test_a_new_source_is_neutral_and_unverified_and_sends_only_leads():
+    hub, belief_id = _hub(["edge-a"], verified=False)
+    assert hub.ledger.trust("edge-a", KIND) == Fraction(1, 2)
+    assert not hub.ledger.is_verified("edge-a", KIND)
     hub.receive(_packet("edge-a"))
     (outcome,) = hub.close_round()
-    assert outcome.offered == en.DEFAULT_TRUST
-    assert not outcome.revised
-    assert hub.memory.get_belief(belief_id).confidence == 0.5
+    assert (outcome.offered, outcome.revised) == (0, False)
+    assert outcome.reason.startswith("lead")
     assert hub.memory.get_revisions(belief_id) == []
 
 
-def test_a_node_can_lower_its_own_weight_but_never_raise_it():
-    hub, _ = _hub(["low", "high"], trust=Fraction(3, 5))
+def test_a_source_can_lower_its_own_weight_but_never_raise_it():
+    hub, _ = _hub(["low", "high"])
     hub.receive(_packet("low", stated={KIND: Fraction(1, 2)}))
     hub.receive(_packet("high", stated={KIND: Fraction(1)}))
     offered = {o.node_id: o.offered for o in hub.close_round()}
-    assert offered == {"low": Fraction(1, 2), "high": Fraction(3, 5)}
+    assert offered == {"low": Fraction(1, 2), "high": ONE_PASS}
 
 
 # --- the cryptographic layer ---------------------------------------------------
@@ -179,21 +198,20 @@ class _ToyScheme:
 
 def test_trust_and_aggregation_work_unchanged_with_another_scheme():
     hub, belief_id = _hub([])
-    hub.ledger.enrol("edge-t", _ToyScheme(b"t"), by="tester", reason="test")
-    hub.ledger.set_trust("edge-t", KIND, Fraction(4, 5), by="tester", reason="test")
+    hub.ledger.enrol("edge-t", _ToyScheme(b"t"), reason="test")
+    hub.ledger.record_ground_truth("edge-t", KIND, correct=True, against="setup")
     packet = en.packet_from_report("edge-t", _ToyScheme(b"t"), REPORT, sent_at="t")
     assert packet.scheme == "toy-sha256"
     assert hub.receive(packet)
     (outcome,) = hub.close_round()
-    assert outcome.revised and outcome.applied == Fraction(4, 5)
+    assert outcome.revised and outcome.applied == ONE_PASS
     assert hub.memory.get_belief(belief_id).confidence > 0.5
     assert hub.ledger.entries[0].detail == "toy-sha256 (asymmetric) toy:74"
 
 
 def test_a_packet_in_a_scheme_other_than_the_enrolled_one_is_refused():
     hub, _ = _hub(["edge-a"])
-    relabelled = en.sign(_packet("edge-a"), _ToyScheme(b"edge-a"))
-    assert not hub.receive(relabelled)
+    assert not hub.receive(en.sign(_packet("edge-a"), _ToyScheme(b"edge-a")))
     assert hub.refused == [
         ("edge-a", "integrity: scheme 'toy-sha256' is not the enrolled 'hmac-sha256'")
     ]
@@ -209,8 +227,8 @@ def test_the_scheme_is_covered_by_the_signature():
 
 
 def test_enrolment_records_the_scheme_and_a_fingerprint_never_the_secret():
-    ledger = en.TrustLedger()
-    ledger.enrol("edge-a", en.HmacSha256(b"s3cret"), by="tester", reason="test")
+    ledger = en.SourceLedger()
+    ledger.enrol("edge-a", en.HmacSha256(b"s3cret"), reason="test")
     (entry,) = ledger.entries
     assert entry.detail.startswith("hmac-sha256 (symmetric) sha256:")
     assert b"s3cret".hex() not in entry.detail and "s3cret" not in repr(en.HmacSha256(b"s3cret"))
@@ -222,11 +240,11 @@ def test_enrolment_records_the_scheme_and_a_fingerprint_never_the_secret():
 
 
 def test_a_signature_never_changes_an_items_weight():
-    ledger = en.TrustLedger()
-    ledger.enrol("signed", en.HmacSha256(b"k"), by="tester", reason="test")
-    ledger.enrol("unsigned", by="tester", reason="test")
+    ledger = en.SourceLedger()
+    ledger.enrol("signed", en.HmacSha256(b"k"), reason="test")
+    ledger.enrol("unsigned", reason="test")
     for node in ("signed", "unsigned"):
-        ledger.set_trust(node, KIND, Fraction(3, 5), by="tester", reason="test")
+        ledger.record_ground_truth(node, KIND, correct=True, against="setup")
     memory = EpistemicMemory()
     _OPEN.append(memory)
     belief = Belief("p95 regressed", BeliefType.THEORY, 0.5, "checkout")
@@ -236,76 +254,268 @@ def test_a_signature_never_changes_an_items_weight():
     assert hub.receive(en.packet_from_report("unsigned", None, REPORT, sent_at="t"))
     assert hub.received == [("signed", "verified"), ("unsigned", "unchecked")]
     offered = {o.node_id: (o.offered, o.applied) for o in hub.close_round()}
-    assert offered["signed"] == offered["unsigned"] == (Fraction(3, 5), Fraction(3, 5))
+    assert offered["signed"] == offered["unsigned"] == (ONE_PASS, ONE_PASS)
 
 
 def test_a_node_enrolled_with_a_verifier_must_pass_its_integrity_check():
     hub, _ = _hub(["edge-a"])
-    unsigned = en.packet_from_report("edge-a", None, REPORT, sent_at="t")
+    unsigned = _packet("edge-a", signed=False)
     assert unsigned.signature == "" and unsigned.scheme == ""
     assert not hub.receive(unsigned)
     assert hub.refused == [("edge-a", "integrity: scheme '' is not the enrolled 'hmac-sha256'")]
 
 
-def test_enrolment_without_a_verifier_gives_no_trust():
-    ledger = en.TrustLedger()
-    ledger.enrol("edge-a", by="tester", reason="test")
+def test_enrolment_gives_no_weight():
+    ledger = en.SourceLedger()
+    ledger.enrol("edge-a", reason="test")
     assert ledger.is_enrolled("edge-a") and ledger.verifier("edge-a") is None
     assert ledger.entries[0].detail == "no integrity check"
-    assert ledger.trust("edge-a", KIND) == en.DEFAULT_TRUST
+    assert ledger.weight("edge-a", KIND) == 0
+    with pytest.raises(ValueError, match="own id"):
+        ledger.enrol(en.SELF, reason="test")
 
 
-def test_an_impostor_using_an_enrolled_id_is_bounded_by_the_cap_and_by_checks():
-    ledger = en.TrustLedger()
-    ledger.enrol("edge-a", by="tester", reason="test")  # no integrity check: ids can be claimed
-    ledger.set_trust("edge-a", KIND, Fraction(1), by="tester", reason="test")
-    memory = EpistemicMemory()
-    _OPEN.append(memory)
-    belief = Belief("p95 regressed", BeliefType.THEORY, 0.5, "checkout")
-    memory.add_belief(belief)
-    hub = en.EdgeNode("hub", memory, ledger, [en.Route(KIND, belief.id, en.p95_rose)])
+def test_an_impostor_using_an_enrolled_id_is_bounded_by_the_cap_and_by_ground_truth():
+    hub, belief_id = _hub(["edge-a"], signed=False)  # no integrity check: ids can be claimed
     for n in range(20):
-        forged = en.packet_from_report("edge-a", None, _distinct_report(f"x{n}"), sent_at="t")
-        assert hub.receive(forged)
+        assert hub.receive(_packet("edge-a", _distinct_report(f"x{n}"), signed=False))
         hub.close_round()
-    assert memory.get_belief(belief.id).confidence <= 0.75 + 1e-12
-    ledger.record_check("edge-a", KIND, correct=False, against="inspection", by="tester")
-    assert ledger.trust("edge-a", KIND) < 1
+    assert hub.memory.get_belief(belief_id).confidence <= 0.75 + 1e-12
+    review = hub.check_ground_truth("edge-a", "derived:x0", correct=False, against="inspection")
+    assert review == [belief_id]
+    assert hub.ledger.weight("edge-a", KIND) == 0
 
 
-# --- trust -------------------------------------------------------------------
+# --- trust rests on behaviour over time and consistency ---------------------------
 
 
-def test_peer_agreement_never_changes_trust():
-    nodes = [f"edge-{i}" for i in range(10)]
-    hub, _ = _hub(nodes, trust=Fraction(3, 5))
+def test_no_method_takes_a_figure_a_vouch_or_a_count():
+    public = {n for n, _ in inspect.getmembers(en.SourceLedger) if not n.startswith("_")}
+    writers = {"enrol", "declare_group", "revoke", "record_ground_truth", "record_consistency",
+               "record_behaviour"}
+    readers = {"entries", "is_enrolled", "is_revoked", "verifier", "is_verified", "trust",
+               "weight", "group"}
+    assert public == writers | readers
+    for name in writers:
+        params = set(inspect.signature(getattr(en.SourceLedger, name)).parameters)
+        assert not params & {"trust", "figure", "score", "vouch", "count", "weight"}
+
+
+def test_agreement_among_unverified_peers_verifies_nothing():
+    nodes = [f"edge-{i}" for i in range(10)]  # ten independent groups, all agreeing
+    hub, belief_id = _hub(nodes, verified=False)
     entries = hub.ledger.entries
     for round_ in range(3):
         for n in nodes:
             hub.receive(_packet(n, _distinct_report(f"{n}-{round_}")))
         hub.close_round()
     assert hub.ledger.entries == entries
-    assert {hub.ledger.trust(n, KIND) for n in nodes} == {Fraction(3, 5)}
+    assert not any(hub.ledger.is_verified(n, KIND) for n in nodes)
+    assert hub.memory.get_revisions(belief_id) == []
 
 
-def test_trust_moves_only_with_checked_outcomes_by_exact_beta_mean():
-    ledger = en.TrustLedger()
-    ledger.set_trust("edge-a", KIND, Fraction(1, 2), by="tester", reason="enrolled")
-    ledger.record_check("edge-a", KIND, correct=True, against="reference meter", by="tester")
-    ledger.record_check("edge-a", KIND, correct=True, against="reference meter", by="tester")
-    ledger.record_check("edge-a", KIND, correct=False, against="inspection", by="tester")
-    assert ledger.trust("edge-a", KIND) == Fraction(3, 5)  # Beta(1+2, 1+1)
-    assert [e.action for e in ledger.entries] == ["set", "check", "check", "check"]
+def test_consistency_with_the_nodes_own_data_verifies_a_source():
+    hub, _ = _hub(["edge-a"], verified=False)
+    hub.observe_own(REPORT)
+    hub.receive(_packet("edge-a"))
+    outcomes = {o.node_id: o for o in hub.close_round()}
+    assert outcomes[en.SELF].revised and outcomes[en.SELF].applied == Fraction(4, 5)
+    assert not outcomes["edge-a"].revised  # weights were set before the check
+    assert hub.ledger.is_verified("edge-a", KIND)
+    assert hub.ledger.trust("edge-a", KIND) == Fraction(14, 23)  # (0.9 + 1/2) / 2.3
+    assert hub.ledger.entries[-1].reason == "consistency with self"
 
 
-def test_trust_changes_need_a_person_a_reason_and_a_prior():
-    ledger = en.TrustLedger()
-    with pytest.raises(ValueError, match="person"):
-        ledger.set_trust("edge-a", KIND, Fraction(1, 2), by="", reason="x")
-    with pytest.raises(ValueError, match="a person sets it first"):
-        ledger.record_check("edge-a", KIND, correct=True, against="x", by="tester")
-    with pytest.raises(ValueError, match="in \\[0, 1\\]"):
-        ledger.set_trust("edge-a", KIND, Fraction(3, 2), by="tester", reason="x")
+def test_a_reference_must_be_independent_and_verified():
+    ledger = en.SourceLedger()
+    for n in ("a", "b", "c"):
+        ledger.enrol(n, reason="test")
+    ledger.declare_group("g", ["a", "b"], reason="shared firmware")
+    ledger.record_ground_truth("b", KIND, correct=True, against="setup")
+    with pytest.raises(ValueError, match="not independent"):
+        ledger.record_consistency("a", KIND, consistent=True, reference="b")
+    with pytest.raises(ValueError, match="not verified"):
+        ledger.record_consistency("a", KIND, consistent=True, reference="c")
+    with pytest.raises(ValueError, match="not independent"):
+        ledger.record_consistency("a", KIND, consistent=True, reference="a")
+
+
+def test_an_inconsistency_lowers_the_record_and_is_kept_as_a_dispute():
+    hub, _ = _hub(["edge-a"])
+    hub.observe_own(REPORT)
+    hub.receive(_packet("edge-a", _distinct_report("odd", p95_change=-40.0)))
+    hub.close_round()
+    assert hub.disputes == [("edge-a", "derived:odd", en.SELF, DERIVED)]
+    assert hub.ledger.trust("edge-a", KIND) < ONE_PASS
+    assert hub.ledger.is_verified("edge-a", KIND)  # only ground truth suspends
+
+
+def test_ground_truth_outranks_consistency():
+    ledger = en.SourceLedger()
+    for n in ("truth", "agree"):
+        ledger.enrol(n, reason="test")
+    ledger.record_ground_truth("truth", KIND, correct=True, against="reference meter")
+    ledger.record_consistency("agree", KIND, consistent=True, reference=en.SELF)
+    assert ledger.trust("truth", KIND) > ledger.trust("agree", KIND)
+    with pytest.raises(ValueError, match="outrank"):
+        en.Policy(ground_truth_weight=Fraction(1, 2), consistency_weight=Fraction(1))
+
+
+def test_recent_behaviour_counts_most_and_trust_has_a_ceiling():
+    ledger = en.SourceLedger()
+    ledger.enrol("edge-a", reason="test")
+    for _ in range(50):
+        ledger.record_ground_truth("edge-a", KIND, correct=True, against="meter")
+    assert ledger.trust("edge-a", KIND) == en.Policy().ceiling
+    assert ledger.record_ground_truth("edge-a", KIND, correct=False, against="meter")
+    assert ledger.weight("edge-a", KIND) == 0  # one failure suspends at once
+    for _ in range(3):
+        ledger.record_ground_truth("edge-a", KIND, correct=False, against="meter")
+    # A long good run does not cushion a switch: four failures undo fifty passes.
+    assert ledger.trust("edge-a", KIND) < Fraction(1, 2)
+
+
+def test_trust_falls_faster_than_it_rises():
+    ledger = en.SourceLedger()
+    for n in ("up", "down"):
+        ledger.enrol(n, reason="test")
+    ledger.record_ground_truth("up", KIND, correct=True, against="meter")
+    ledger.record_ground_truth("down", KIND, correct=False, against="meter")
+    half = Fraction(1, 2)
+    assert half - ledger.trust("down", KIND) > ledger.trust("up", KIND) - half
+
+
+def test_a_verified_source_checked_wrong_is_suspended_and_nothing_recomputed():
+    hub, belief_id = _hub(["edge-a"])
+    hub.receive(_packet("edge-a"))
+    hub.close_round()
+    before = hub.memory.get_belief(belief_id)
+    review = hub.check_ground_truth("edge-a", DERIVED, correct=False, against="inspection")
+    assert review == [belief_id]
+    assert not hub.ledger.is_verified("edge-a", KIND)
+    assert hub.ledger.entries[-1].action == "suspend"
+    assert hub.memory.get_belief(belief_id) == before
+    with pytest.raises(ValueError, match="no item"):
+        hub.check_ground_truth("edge-a", "never-sent", correct=True, against="x")
+
+
+# --- trust is held per context ------------------------------------------------
+
+
+def test_a_source_trusted_in_one_context_is_not_trusted_in_another():
+    ledger = en.SourceLedger()
+    ledger.enrol("edge-a", reason="test")
+    memory = EpistemicMemory()
+    _OPEN.append(memory)
+    day = Belief("p95 regressed by day", BeliefType.THEORY, 0.5, "checkout")
+    night = Belief("p95 regressed at night", BeliefType.THEORY, 0.5, "checkout")
+    memory.add_belief(day)
+    memory.add_belief(night)
+    hub = en.EdgeNode("hub", memory, ledger, [
+        en.Route(KIND, day.id, en.p95_rose, context="day"),
+        en.Route(KIND, night.id, en.p95_rose, context="night"),
+    ])
+    ledger.record_ground_truth("edge-a", f"{KIND}@day", correct=True, against="meter")
+    hub.receive(_packet("edge-a", signed=False))
+    outcomes = {o.belief_id: o for o in hub.close_round()}
+    assert outcomes[day.id].revised and outcomes[day.id].applied == ONE_PASS
+    assert outcomes[night.id].offered == 0  # a lead at night
+    # A failure at night leaves the day record as it was.
+    hub.check_ground_truth("edge-a", DERIVED, correct=False, against="night meter",
+                           context=f"{KIND}@night")
+    assert ledger.trust("edge-a", f"{KIND}@night") < Fraction(1, 2)
+    assert ledger.weight("edge-a", f"{KIND}@day") == ONE_PASS
+    with pytest.raises(ValueError, match="not routed"):
+        hub.check_ground_truth("edge-a", DERIVED, correct=True, against="x", context="dusk")
+
+
+# --- the covert node: a good record, then a subtle shift ------------------------
+
+OWN_P95 = REPORT["derived"][0]["data"]["p95_change_pct"]
+
+
+def _round(hub, node, n, p95_change):
+    """One round: the hub's own observation, and the source's report at *p95_change*."""
+    hub.observe_own(REPORT)
+    hub.receive(_packet(node, _distinct_report(f"{node}-{n}", p95_change=p95_change)))
+    return hub.close_round()
+
+
+def _findings(hub, node):
+    return [e.reason.split(":")[0] for e in hub.ledger.entries
+            if e.node_id == node and e.action == "suspend"]
+
+
+def test_audits_never_stop_and_ignore_the_record():
+    hub, _ = _hub(["good"])
+    for _ in range(30):
+        hub.ledger.record_ground_truth("good", KIND, correct=True, against="meter")
+    fresh, _ = _hub(["new"], verified=False)
+    ids = [f"item-{n}" for n in range(400)]
+    drawn = [i for i in ids if hub._audit_drawn("good", i)]
+    assert drawn == [i for i in ids if fresh._audit_drawn("good", i)]  # record plays no part
+    assert 50 < len(drawn) < 110  # about one in five, at a fixed salt
+    other_salt = en.EdgeNode("x", hub.memory, hub.ledger, [], audit_salt=b"other")
+    assert drawn != [i for i in ids if other_salt._audit_drawn("good", i)]
+    hub.receive(_packet("good"))
+    assert set(hub.audits) <= {("good", i.item_id) for i in _packet("good").items}
+
+
+def test_a_source_that_contradicts_itself_is_suspended():
+    hub, belief_id = _hub(["edge-a"])
+    hub.receive(_packet("edge-a", _distinct_report("first")))
+    hub.close_round()
+    hub.receive(_packet("edge-a", _distinct_report("second", p95_change=-30.0)))
+    hub.close_round()
+    assert ("edge-a", "derived:second", "edge-a", "derived:first") in hub.disputes
+    assert _findings(hub, "edge-a") == ["self-contradiction"]
+    assert hub.ledger.weight("edge-a", KIND) == 0
+    assert hub.review == [belief_id]
+
+
+def test_only_ground_truth_lifts_a_suspension():
+    ledger = en.SourceLedger()
+    ledger.enrol("edge-a", reason="test")
+    ledger.record_ground_truth("edge-a", KIND, correct=True, against="meter")
+    assert ledger.record_behaviour("edge-a", KIND, finding="drift", detail="test")
+    ledger.record_consistency("edge-a", KIND, consistent=True, reference=en.SELF)
+    assert not ledger.is_verified("edge-a", KIND)  # agreement alone does not lift it
+    ledger.record_ground_truth("edge-a", KIND, correct=True, against="a person's review")
+    assert ledger.is_verified("edge-a", KIND)
+    with pytest.raises(ValueError, match="unknown finding"):
+        ledger.record_behaviour("edge-a", KIND, finding="rumour", detail="x")
+
+
+def test_a_slow_drift_is_caught_while_every_single_report_still_passes():
+    hub, belief_id = _hub(["drifter"])
+    caught_at = None
+    for n in range(12):
+        _round(hub, "drifter", n, OWN_P95 + 3 * n)  # three points further each round
+        if not hub.ledger.is_verified("drifter", KIND):
+            caught_at = n
+            break
+    consistency = [e for e in hub.ledger.entries
+                   if e.node_id == "drifter" and e.reason == "consistency with self"]
+    assert all(e.passed for e in consistency)  # each report alone looked fine
+    assert caught_at is not None and 3 * caught_at < en.P95_TOLERANCE_PP
+    assert _findings(hub, "drifter") == ["drift"]
+    assert hub.review == [belief_id]
+
+
+def test_a_constant_bias_inside_the_tolerance_is_caught():
+    hub, _ = _hub(["biased"])
+    for n in range(5):
+        _round(hub, "biased", n, OWN_P95 + 12)
+    assert _findings(hub, "biased") == ["drift"]
+
+
+def test_an_honest_noisy_source_is_never_flagged():
+    hub, _ = _hub(["honest"])
+    for n in range(20):
+        _round(hub, "honest", n, OWN_P95 + (8 if n % 2 else -8))
+    assert _findings(hub, "honest") == []
+    assert hub.ledger.is_verified("honest", KIND)
+    assert hub.disputes == []
 
 
 # --- aggregation -------------------------------------------------------------
@@ -321,20 +531,20 @@ def test_matching_reports_from_one_declared_group_count_once():
     assert len(hub.memory.get_revisions(belief_id)) == 1
 
 
-def test_one_peer_flooding_distinct_observations_cannot_pass_its_cap():
-    hub, belief_id = _hub(["edge-a"], trust=Fraction(1))
+def test_one_source_flooding_distinct_observations_cannot_pass_its_cap():
+    hub, belief_id = _hub(["edge-a"])
     for n in range(20):
         hub.receive(_packet("edge-a", _distinct_report(n)))
         hub.close_round()
     belief = hub.memory.get_belief(belief_id)
-    # Uniform prior Beta(1, 1) plus at most PEER_CAP from one group: 3/4 at most.
+    # Uniform prior Beta(1, 1) plus at most the cap of 2 from one group: 3/4 at most.
     assert belief.alpha - 1 <= float(en.PEER_CAP) + 1e-12
     assert belief.confidence <= 0.75 + 1e-12
 
 
 def test_independent_groups_each_bring_their_own_cap():
     nodes = [f"edge-{i}" for i in range(4)]
-    hub, belief_id = _hub(nodes, trust=Fraction(1))
+    hub, belief_id = _hub(nodes)
     for n in range(6):
         for node in nodes:
             hub.receive(_packet(node, _distinct_report(f"{node}-{n}")))
@@ -369,7 +579,7 @@ def test_revocation_changes_no_belief_and_lists_those_resting_on_the_node():
     hub.receive(_packet("edge-a"))
     hub.close_round()
     before = hub.memory.get_belief(belief_id)
-    hub.ledger.revoke("edge-a", by="tester", reason="tampered")
+    hub.ledger.revoke("edge-a", reason="tampered")
     assert hub.memory.get_belief(belief_id) == before
     assert hub.resting_on("edge-a") == [belief_id]
     assert not hub.receive(_packet("edge-a"))
@@ -380,10 +590,13 @@ def test_revocation_changes_no_belief_and_lists_those_resting_on_the_node():
 
 def test_worked_example_from_the_recorded_report():
     lines = en.main([]).splitlines()
-    assert "refused edge-c: not enrolled" in lines
+    lead = "offered 0, applied 0, revised False (lead: source not verified in this context)"
+    assert lines[1:4] == ["round 1:", f"  edge-a {DERIVED}: {lead}", f"  edge-b {DERIVED}: {lead}"]
+    assert "  edge-a: verified True, trust 14/23" in lines
     assert any("edge-b" in line and "counted once" in line for line in lines)
-    assert lines[-3] == "belief: confidence 0.643, revisions 1"
-    assert lines[-2] == "proposals held, not believed: 2"
+    assert "refused edge-c: not enrolled" in lines
+    assert "belief: confidence 0.707, revisions 2" in lines
+    assert "edge-a checked wrong: verified False, beliefs to review 1" in lines
 
 
 def test_runs_hybrid_agent_live_when_installed():

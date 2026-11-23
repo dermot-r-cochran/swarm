@@ -15,7 +15,7 @@ future change breaches an ADR, not to exercise a feature.
 
 One test file per module (plus `test_public_api.py` for the package's
 exported surface, `test_properties.py` for the property suite and
-`test_check_docs.py` for the doc check), 287 tests total:
+`test_check_docs.py` for the doc check), 300 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -118,20 +118,35 @@ exported surface, `test_properties.py` for the property suite and
   coverage contributor.
 - `test_example_edge_node.py` (added 2026-11-22) — the edge-node prototype in
   `examples/edge_node.py`, against the guards ADR-0006 and ADR-0007 (both
-  Proposed) name as likely: a node's hypothesis is held as a `Claim` and never
-  stored as a belief; unenrolled, forged and revoked packets are refused whole;
-  a pair at the default trust moves no belief; a node can lower its own weight
-  and never raise it; peer agreement never changes trust, which moves only by
-  checked outcomes in exact Beta arithmetic; reports from one declared group
-  count once; one group's lifetime weight on a belief is capped, so one peer
-  flooding distinct observations cannot take a uniform prior past 0.75;
-  aggregation conserves weight exactly and gives the same awards in any input
-  order; revocation changes no belief. Trust does not rest on signatures (the author's ruling of 23 November 2026, ADR-0007 section 1): a signed and an unsigned packet get the same weight, a node enrolled without a verifier is admitted unsigned and recorded `unchecked`, enrolment gives no trust, a node enrolled with one must pass its integrity check, and an impostor using an enrolled name is bounded by the cap and loses trust on a failed check. Integrity checking sits behind `Signer` and `Verifier` (HMAC-SHA256 the only scheme written): a test-only second scheme drives trust and aggregation unchanged, a packet in a scheme other than the enrolled one is refused, the scheme name is covered by the signature, and enrolment records a fingerprint, never the secret. Its live test runs hybrid-agent with
-  `--rules-first` and is skipped where hybrid-agent is not installed (as in
-  CI); the others read a report recorded from it in
-  `tests/fixtures/hybrid_agent_rules_first_report.json` (hybrid-agent at
-  `65d5af6`). Outside `--cov=episteme`, like the other examples. These are not
-  ADR guards until the ADRs are accepted.
+  Proposed) name as likely, and the author's rulings of 23 November 2026 on
+  what trust may rest on. Admission: a hypothesis is held as a `Claim` and
+  never stored as a belief; unenrolled, forged and revoked packets are
+  refused whole. Trust from behaviour and consistency: a new source is neutral
+  and unverified and sends only leads; no ledger method takes a figure, a
+  vouch or a count; agreement among unverified peers verifies nothing;
+  consistency with the node's own data verifies a source; a reference must be
+  independent and verified; an inconsistency lowers the record and is kept as
+  a dispute; ground truth outranks consistency; recent behaviour counts most,
+  trust has a ceiling and falls faster than it rises; a failed ground-truth
+  check suspends and lists beliefs for review, recomputing none, and only
+  ground truth lifts a suspension; trust is held per context, so a source
+  trusted by day is a lead at night. The covert node: audits are drawn by a
+  keyed lot that ignores the record; a source that contradicts itself is
+  suspended; a slow drift is caught while every single report still passes;
+  a constant bias inside the tolerance is caught; an honest noisy source is
+  never flagged. Signatures: a signed and an unsigned packet get the same
+  weight; a node enrolled with a verifier must pass it; integrity sits behind
+  `Signer` and `Verifier` (HMAC-SHA256 the only scheme written), a test-only
+  second scheme runs unchanged, the scheme name is signed, and enrolment
+  records a fingerprint, never the secret. Aggregation: one declared group
+  counts once; one source, or an impostor using its name, cannot take a
+  uniform prior past 0.75; independent groups each bring their own cap;
+  weight is conserved exactly in any input order; revocation changes no
+  belief. Its live test runs hybrid-agent with `--rules-first` and is skipped
+  where hybrid-agent is not installed (as in CI); the others read a report
+  recorded from it in `tests/fixtures/hybrid_agent_rules_first_report.json`
+  (hybrid-agent at `65d5af6`). Outside `--cov=episteme`, like the other
+  examples. These are not ADR guards until the ADRs are accepted.
 - `test_example_first_belief.py` (added 2026-11-01) — pins the README's
   first run, `examples/first_belief.py`: its report shows two revisions
   and two refusals in the stated order with the core's reasons, the

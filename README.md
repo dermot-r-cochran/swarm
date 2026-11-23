@@ -62,9 +62,12 @@ where:
 - `examples/archipelago_first_fork.py` – the synthesis run over a published Archipelago export
   (`tests/test_example_archipelago.py::test_example_reads_an_export_and_cites_the_record`)
 - `examples/edge_node.py` – a prototype edge node for the Proposed ADR-0006 and ADR-0007: a
-  hybrid-agent run with `--rules-first` locally, its evidence (never its beliefs) sent signed to
-  a peer, admitted at the trust a person set, aggregated exactly with each correlated group
-  counted once and capped, trust never resting on signatures, which are an optional integrity check behind a pluggable interface; THEORY, not part of the package
+  hybrid-agent run with `--rules-first` locally, its evidence (never its beliefs) sent to a
+  peer, weighted by the receiver's own per-context record of the source's behaviour over time
+  and consistency with independent data, with audits, self-contradiction and drift checks
+  against a covert node, aggregated exactly with each correlated group counted once and
+  capped; never by signatures (an optional integrity check), vouching or a set figure;
+  THEORY, not part of the package
   (`tests/test_example_edge_node.py::test_worked_example_from_the_recorded_report`)
 - `tests/` – unit tests for all modules (`.github/scripts/check_docs.py` fails CI if a module
   in `episteme/` has no `tests/test_<module>.py`)
