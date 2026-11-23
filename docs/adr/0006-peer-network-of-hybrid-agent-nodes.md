@@ -55,12 +55,13 @@ a hybrid-agent.
 
 - `episteme` gains no dependency on hybrid-agent, and hybrid-agent gains no
   peer code.
-- Accepted on 23 November 2026, after the prototype in `examples/edge_node.py`
-  merged (#47, #48). Its guards are in `tests/test_example_edge_node.py`:
+- Accepted on 23 November 2026, after the prototype merged (#47, #48). The
+  node is `episteme/edge.py` since the same day. Its guards are in
+  `tests/test_edge.py`:
   `test_a_hypothesis_is_held_as_a_claim_and_never_stored_as_a_belief` and
   `test_agreement_among_unverified_peers_verifies_nothing`.
-- The prototype stays in `examples/`. Moving any of it into the `episteme`
-  package is a separate change, made when a concrete need is shown.
+- `episteme.edge` reads hybrid-agent's JSON report and never imports or runs
+  hybrid-agent; `examples/edge_node.py` runs it as a separate program.
 - Left open for acceptance: the transport, whether nodes span machines, how
   a node's reliability is set and revised, and whether a node may also take
   evidence from its own local partner.
