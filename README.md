@@ -55,19 +55,22 @@ where:
 - `episteme/experience.py` – observation-to-revision loop (`tests/test_experience.py`)
 - `episteme/population.py` – population synthesis: cited structure over many holders' positions
   (`tests/test_population.py`)
+- `episteme/edge.py` – the edge node of ADR-0006 and ADR-0007: a hybrid-agent report's
+  evidence (never its beliefs) received from a peer, weighted by the receiver's own
+  per-context record of the source's behaviour over time and consistency with independent
+  data, with audits, self-contradiction and drift checks against a covert node, aggregated
+  exactly with each correlated group counted once and capped; never by signatures (an
+  optional integrity check), vouching or a set figure. Reached as `episteme.edge`, not
+  re-exported from the root (`tests/test_edge.py`)
 - `examples/first_belief.py` – the core flow on one belief, from a fresh install
   (`tests/test_example_first_belief.py::test_first_run_shows_the_flow_and_its_refusals`)
 - `examples/admit_claim.py` – a Claim admitted as a belief at the uniform prior of 0.5
   (`tests/test_example_admit_claim.py::test_admitted_claim_starts_at_the_uniform_prior_and_moves_only_on_evidence`)
 - `examples/archipelago_first_fork.py` – the synthesis run over a published Archipelago export
   (`tests/test_example_archipelago.py::test_example_reads_an_export_and_cites_the_record`)
-- `examples/edge_node.py` – a prototype edge node for the accepted ADR-0006 and ADR-0007: a
-  hybrid-agent run with `--rules-first` locally, its evidence (never its beliefs) sent to a
-  peer, weighted by the receiver's own per-context record of the source's behaviour over time
-  and consistency with independent data, with audits, self-contradiction and drift checks
-  against a covert node, aggregated exactly with each correlated group counted once and
-  capped; never by signatures (an optional integrity check), vouching or a set figure;
-  THEORY, not part of the package
+- `examples/edge_node.py` – the edge node's worked example: hybrid-agent run locally with
+  `--rules-first` (or its recorded report), two peers over two rounds, then a failed
+  ground-truth check
   (`tests/test_example_edge_node.py::test_worked_example_from_the_recorded_report`)
 - `tests/` – unit tests for all modules (`.github/scripts/check_docs.py` fails CI if a module
   in `episteme/` has no `tests/test_<module>.py`)

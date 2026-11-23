@@ -299,12 +299,11 @@ it: consistency is a degree (section 4), not a tolerance.
 
 ## Consequences
 
-- Accepted on 23 November 2026 with ADR-0006, after the prototype in
-  `examples/edge_node.py` merged (#47, #48). The prototype stays in
-  `examples/`. Moving it into the `episteme` package is a separate change, and
-  so is giving `Evidence` a source (node and kind), which would break its id
-  payload.
-- Its guards are in `tests/test_example_edge_node.py`, one for each:
+- Accepted on 23 November 2026 with ADR-0006, after the prototype merged
+  (#47, #48), and built the same day as `episteme/edge.py`. Giving `Evidence`
+  a source (node and kind), which would break its id payload, is a separate
+  change; until then the source travels in the evidence's own source string.
+- Its guards are in `tests/test_edge.py`, one for each:
   - trust in a pair cannot be raised by reports from other nodes agreeing with
     it, however many: `test_agreement_among_unverified_peers_verifies_nothing`;
   - a report from an unverified pair cannot move a belief, although its

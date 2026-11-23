@@ -15,7 +15,7 @@ future change breaches an ADR, not to exercise a feature.
 
 One test file per module (plus `test_public_api.py` for the package's
 exported surface, `test_properties.py` for the property suite and
-`test_check_docs.py` for the doc check), 308 tests total:
+`test_check_docs.py` for the doc check), 314 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -116,8 +116,9 @@ exported surface, `test_properties.py` for the property suite and
   petitions parsed or refused loudly, goals as utterances. The example is
   outside `--cov=episteme`, so this is a smoke test of the crossing, not a
   coverage contributor.
-- `test_example_edge_node.py` (added 2026-11-22) — the edge-node prototype in
-  `examples/edge_node.py`, holding the guards of ADR-0006 and ADR-0007
+- `test_edge.py` (added 2026-11-22 as `test_example_edge_node.py`, moved with
+  the code into `episteme/edge.py` on 2026-11-23) — the edge node, holding the
+  guards of ADR-0006 and ADR-0007
   (accepted 23 November 2026; each ADR names its guard tests), and the author's rulings of 23 November 2026 on
   what trust may rest on. Admission: a hypothesis is held as a `Claim` and
   never stored as a belief; unenrolled, forged and revoked packets are
@@ -145,11 +146,18 @@ exported surface, `test_properties.py` for the property suite and
   counts once; one source, or an impostor using its name, cannot take a
   uniform prior past 0.75; independent groups each bring their own cap;
   weight is conserved exactly in any input order; revocation changes no
-  belief. Its live test runs hybrid-agent with `--rules-first` and is skipped
-  where hybrid-agent is not installed (as in CI); the others read a report
-  recorded from it in `tests/fixtures/hybrid_agent_rules_first_report.json`
-  (hybrid-agent at `65d5af6`). Outside `--cov=episteme`, like the other
-  examples. These are not ADR guards until the ADRs are accepted.
+  belief. Refusals: malformed settings and records are refused, a finding
+  on an unverified source suspends nothing, reports that cannot be compared
+  or routed leave the record alone, and the same report at a new weight is
+  refused, not rewritten. And the module never imports or runs hybrid-agent
+  (an AST walk; ADR-0006). These tests read a report recorded from
+  hybrid-agent in `tests/fixtures/hybrid_agent_rules_first_report.json`
+  (hybrid-agent at `65d5af6`), and count towards `--cov=episteme`.
+- `test_example_edge_node.py` — the edge node's worked example,
+  `examples/edge_node.py`, run end to end from the recorded report; and live,
+  running hybrid-agent with `--rules-first`, skipped where hybrid-agent is
+  not installed (as in CI). Outside `--cov=episteme`, like the other
+  examples.
 - `test_example_first_belief.py` (added 2026-11-01) — pins the README's
   first run, `examples/first_belief.py`: its report shows two revisions
   and two refusals in the stated order with the core's reasons, the
