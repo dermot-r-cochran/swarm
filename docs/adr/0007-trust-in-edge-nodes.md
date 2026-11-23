@@ -83,6 +83,20 @@ reliability a record is admitted at is the trust held for its pair. A node may
 state a lower reliability for its own reading, and the lower figure is used; it
 can never state a higher one.
 
+Within a context, trust is several figures, not one. The author, 23 November
+2026: *"Trust is multi-faceted depending on the context."* Each kind of check
+informs one facet (for example, ground truth informs accuracy, consistency
+informs consistency, self-contradiction and drift inform honesty, and arrival
+in time informs timeliness), and each facet keeps its own record by the
+arithmetic of section 4. Which facets there are, and which check feeds which,
+is each node's to set (section 10); none is built in. What a report is
+admitted at depends on which facets the belief it bears on relies on: an alarm
+may rely on timeliness and a survey may not. It is the least of those facets
+that have been checked, so a source is relied on no further than its weakest
+facet that matters, and a facet not yet checked neither raises nor lowers it.
+Verification and suspension stay per pair: a source checked wrong in any
+facet that suspends is unverified in that context as a whole.
+
 ### 3. A new node is neutral and unverified
 
 The author's ruling, 22 November 2026: *"A new node is neutral and unverified,
@@ -232,7 +246,8 @@ THEORY until measured on a stated machine; no measurement exists yet.
 The author's ruling, 22 November 2026: *"The other questions would depend on
 the context as understood by each node."* So the check rate, the discount
 factor, the weight of a failure against a success, the ceiling, the
-correlation window, and whether a person's direct observation is enrolled as
+correlation window, the facets of trust and which check informs which
+(section 2), and whether a person's direct observation is enrolled as
 a source are not constants of the network. Each node sets them for itself,
 from its own understanding of its context: what it senses, what a wrong
 belief would cost it, how often it can afford a check, how often its links

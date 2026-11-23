@@ -100,7 +100,14 @@ and trust rests on *"behaviour over time and consistency with other data
 sources."* Each node keeps its own record of every source (``SourceLedger``);
 nothing in it is copied from a peer, and no person sets a figure in it.
 
-- **Behaviour over time.** A (source, kind) pair's trust is the mean of a
+- **Many facets, per context.** *"Trust is multi-faceted depending on the
+  context"* (the author, 23 November 2026). Each check feeds one facet, as
+  the node's ``Policy.facets`` maps it (accuracy, consistency, honesty,
+  timeliness, or whatever set the node chooses), and each facet keeps its own
+  record. A ``Route`` names the facets its belief relies on; a report's
+  weight is the least of those that have been checked, so a source accurate
+  but late is relied on for a survey and not for an alarm.
+- **Behaviour over time.** Each facet of a (source, kind) pair is the mean of a
   Beta record of how its reports held up, starting neutral at Beta(1, 1)
   (ADR-0007 s. 3). Both counts are discounted at each new outcome, so recent
   behaviour counts most; a failure weighs more than a pass; trust stays under
@@ -236,9 +243,10 @@ import hashlib
 import hmac
 import json
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from fractions import Fraction
+from types import MappingProxyType
 from typing import ClassVar, Protocol
 
 from episteme.core import EpistemicCore
@@ -451,6 +459,10 @@ def packet_from_report(
 #: hybrid-agent run. It is never enrolled, never revoked and has no record.
 SELF = "self"
 
+#: The checks a node records. Each feeds the facet of trust ``Policy.facets``
+#: assigns it; which facets there are is the node's to set, not the module's.
+CHECKS = ("ground truth", "consistency", "self-contradiction", "drift", "timeliness")
+
 
 @dataclass(frozen=True)
 class Policy:
@@ -489,6 +501,12 @@ class Policy:
     #: How many recent deviations from independent references are averaged
     #: to detect slow drift.
     drift_window: int
+    #: Which facet of trust each check in ``CHECKS`` informs: for example
+    #: ground truth to accuracy, consistency to consistency, self-contradiction
+    #: and drift to honesty, timeliness to timeliness. Every check is mapped;
+    #: several may share a facet, and mapping all to one gives a single
+    #: figure per context. No set of facets is built in.
+    facets: Mapping[str, str]
 
     def __post_init__(self) -> None:
         for name in ("ground_truth_weight", "consistency_weight", "failure_multiple", "cap"):
@@ -508,6 +526,16 @@ class Policy:
             raise ValueError("audit_rate must be in (0, 1]: checks never stop")
         if self.drift_window < 2:
             raise ValueError("drift_window must be at least 2")
+        if set(self.facets) != set(CHECKS):
+            raise ValueError(f"facets must map every check in {CHECKS}, and nothing else")
+        if not all(isinstance(f, str) and f.strip() for f in self.facets.values()):
+            raise ValueError("every facet needs a name")
+        # Frozen, so a policy's facets cannot be changed after it is built.
+        object.__setattr__(self, "facets", MappingProxyType(dict(self.facets)))
+
+    @property
+    def facet_names(self) -> frozenset[str]:
+        return frozenset(self.facets.values())
 
     def agrees(self, degree: Fraction) -> bool:
         """Whether a degree of consistency counts as agreement where a yes or no is needed.
@@ -530,6 +558,7 @@ class RecordEntry:
     alpha: Fraction = Fraction(0)
     beta: Fraction = Fraction(0)
     detail: str = ""
+    facet: str = ""
 
 
 #: A new source's record: the uniform Beta(1, 1), neutral (ADR-0007 s. 3).
@@ -543,10 +572,15 @@ class SourceLedger:
     context and less so in another (the author, 23 November 2026), and a record
     earned in one gives nothing in another (ADR-0007 s. 2 and s. 8). A context
     is a kind of observation, optionally narrowed by a ``Route``'s own context.
-    Trust in a (source, context) pair is the mean of a discounted Beta record of
-    how the source's reports held up: against ground truth, and against data
-    from independent sources. It starts neutral and unverified, and an
-    unverified pair's reports are leads, admitted at no weight.
+
+    Within a context trust is multi-faceted (the author, 23 November 2026):
+    each check feeds the facet ``Policy.facets`` assigns it, and each facet is
+    the mean of its own discounted Beta record, so a source can be accurate but
+    late, or consistent but contradicting itself. A new facet is neutral. A
+    report's weight rests on the facets its route says the belief depends on,
+    and is the least of them: a source is relied on no further than its
+    weakest facet that matters. The pair starts unverified, and an unverified
+    pair's reports are leads, admitted at no weight.
 
     People enrol names, declare correlation groups and revoke; none of those
     sets a figure. There is no method that takes a figure from a person, a
@@ -558,7 +592,7 @@ class SourceLedger:
         self._entries: list[RecordEntry] = []
         self._enrolled: set[str] = set()
         self._verifiers: dict[str, Verifier] = {}
-        self._counts: dict[tuple[str, str], tuple[Fraction, Fraction]] = {}
+        self._counts: dict[tuple[str, str, str], tuple[Fraction, Fraction]] = {}
         self._verified: set[tuple[str, str]] = set()
         self._suspended: set[tuple[str, str]] = set()
         self._groups: dict[str, str] = {}
@@ -612,7 +646,7 @@ class SourceLedger:
         once: it returns to unverified (ADR-0007 s. 8).
         """
         was_verified = (node_id, context) in self._verified
-        self._outcome(node_id, context, self.policy.ground_truth_weight,
+        self._outcome(node_id, context, "ground truth", self.policy.ground_truth_weight,
                       Fraction(int(correct)), f"ground truth: {against}", passed=correct)
         if correct:
             self._verified.add((node_id, context))
@@ -648,7 +682,7 @@ class SourceLedger:
         if reference != SELF and not self.is_verified(reference, context):
             raise ValueError(f"{reference!r} is not verified for {context!r}")
         agrees = self.policy.agrees(degree)
-        self._outcome(node_id, context, self.policy.consistency_weight, degree,
+        self._outcome(node_id, context, "consistency", self.policy.consistency_weight, degree,
                       f"consistency with {reference}", passed=agrees)
         if agrees and (node_id, context) not in self._suspended:
             # Agreement verifies a new pair; only ground truth lifts a suspension.
@@ -666,27 +700,48 @@ class SourceLedger:
         if finding not in ("self-contradiction", "drift"):
             raise ValueError(f"unknown finding {finding!r}")
         was_verified = (node_id, context) in self._verified
-        self._outcome(node_id, context, self.policy.consistency_weight, Fraction(0),
+        self._outcome(node_id, context, finding, self.policy.consistency_weight, Fraction(0),
                       f"{finding}: {detail}", passed=False)
         if was_verified:
             self._suspend(node_id, context, f"{finding}: {detail}")
             return True
         return False
 
+    def record_timeliness(
+        self, node_id: str, context: str, *, degree: Fraction, detail: str
+    ) -> None:
+        """Record how far a report arrived in time to be of use, from 0 (too late) to 1.
+
+        The node measures this on its own clock (the sender's ``sent_at`` is a
+        stated value and never used). It weighs like consistency and feeds only
+        the facet timeliness is mapped to: it neither verifies nor suspends,
+        since it says nothing about whether the report was right.
+        """
+        degree = Fraction(degree)
+        if not 0 <= degree <= 1:
+            raise ValueError("degree must be in [0, 1]")
+        self._outcome(node_id, context, "timeliness", self.policy.consistency_weight, degree,
+                      f"timeliness: {detail}", passed=self.policy.agrees(degree))
+
     def _suspend(self, node_id: str, context: str, reason: str) -> None:
         self._verified.discard((node_id, context))
         self._suspended.add((node_id, context))
         self._append(RecordEntry("suspend", node_id, reason, context))
 
-    def _outcome(self, node_id: str, context: str, weight: Fraction, degree: Fraction,
-                 reason: str, *, passed: bool) -> None:
-        """Discount the record, then add *degree* of *weight* as success, the rest as failure."""
-        alpha, beta = self._counts.get((node_id, context), NEUTRAL)
+    def _outcome(self, node_id: str, context: str, check: str, weight: Fraction,
+                 degree: Fraction, reason: str, *, passed: bool) -> None:
+        """Discount the check's facet, then add *degree* of *weight* as success, the rest as failure.
+
+        Only the facet the check feeds moves; the others keep their record.
+        """
+        facet = self.policy.facets[check]
+        alpha, beta = self._counts.get((node_id, context, facet), NEUTRAL)
         d = self.policy.discount
         alpha = alpha * d + weight * degree
         beta = beta * d + weight * (1 - degree) * self.policy.failure_multiple
-        self._append(RecordEntry("check", node_id, reason, context, passed, alpha, beta))
-        self._counts[(node_id, context)] = (alpha, beta)
+        self._append(RecordEntry("check", node_id, reason, context, passed, alpha, beta,
+                                 facet=facet))
+        self._counts[(node_id, context, facet)] = (alpha, beta)
 
     # --- reading the record ------------------------------------------------
 
@@ -702,14 +757,47 @@ class SourceLedger:
     def is_verified(self, node_id: str, context: str) -> bool:
         return (node_id, context) in self._verified
 
-    def trust(self, node_id: str, context: str) -> Fraction:
-        """The record's mean, held under the ceiling. Neutral 1/2 for a new pair."""
-        alpha, beta = self._counts.get((node_id, context), NEUTRAL)
+    def facet(self, node_id: str, context: str, facet: str) -> Fraction:
+        """One facet's mean, held under the ceiling. Neutral 1/2 before any check of it."""
+        if facet not in self.policy.facet_names:
+            raise ValueError(f"{facet!r} is not a facet of this node's policy")
+        alpha, beta = self._counts.get((node_id, context, facet), NEUTRAL)
         return min(self.policy.ceiling, alpha / (alpha + beta))
 
-    def weight(self, node_id: str, context: str) -> Fraction:
+    def facets(self, node_id: str, context: str) -> dict[str, Fraction]:
+        """Every facet checked so far for the pair, by name."""
+        return {
+            facet: self.facet(node_id, context, facet)
+            for (node, ctx, facet) in sorted(self._counts)
+            if (node, ctx) == (node_id, context)
+        }
+
+    def trust(
+        self, node_id: str, context: str, relies_on: Iterable[str] | None = None
+    ) -> Fraction:
+        """The least of the facets relied on, among those checked. Neutral 1/2 if none is.
+
+        *relies_on* names the facets that matter here; None means all of them.
+        A facet never checked is left out rather than counted as neutral, so
+        a check not yet made neither lowers nor raises trust (ADR-0007 s. 4).
+        The least, so a source is relied on no further than its weakest facet
+        that matters; any other combining rule would add figures (settled by
+        the author, 23 November 2026).
+        """
+        wanted = self.policy.facet_names if relies_on is None else frozenset(relies_on)
+        unknown = wanted - self.policy.facet_names
+        if unknown:
+            raise ValueError(f"not facets of this node's policy: {sorted(unknown)}")
+        checked = [v for f, v in self.facets(node_id, context).items() if f in wanted]
+        return min(checked, default=NEUTRAL[0] / sum(NEUTRAL))
+
+    def weight(
+        self, node_id: str, context: str, relies_on: Iterable[str] | None = None
+    ) -> Fraction:
         """What a report is admitted at: its trust if verified, else nothing."""
-        return self.trust(node_id, context) if self.is_verified(node_id, context) else Fraction(0)
+        if not self.is_verified(node_id, context):
+            return Fraction(0)
+        return self.trust(node_id, context, relies_on)
 
     def group(self, node_id: str) -> str:
         """The source's declared group, or a group of its own."""
@@ -737,6 +825,9 @@ class Route:
     #: Narrows the trust context below the kind (a site, a time of day, a
     #: load regime). Empty means the kind alone.
     context: str = ""
+    #: The facets of trust this belief depends on (an alarm may need
+    #: timeliness, a survey may not). None means every facet of the policy.
+    relies_on: frozenset[str] | None = None
 
     def context_of(self, item: Item) -> str:
         return item.kind if not self.context else f"{item.kind}@{self.context}"
@@ -955,7 +1046,8 @@ class EdgeNode:
             if direction is None:
                 continue
             context = route.context_of(item)
-            weight = own if own is not None else self.ledger.weight(node_id, context)
+            weight = (own if own is not None
+                      else self.ledger.weight(node_id, context, route.relies_on))
             stated = item.stated_reliability
             # A source may lower its own weight, never raise it (ADR-0007 s. 2).
             if stated is not None:

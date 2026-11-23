@@ -15,7 +15,7 @@ future change breaches an ADR, not to exercise a feature.
 
 One test file per module (plus `test_public_api.py` for the package's
 exported surface, `test_properties.py` for the property suite and
-`test_check_docs.py` for the doc check), 321 tests total:
+`test_check_docs.py` for the doc check), 325 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -139,7 +139,10 @@ exported surface, `test_properties.py` for the property suite and
   trust has a ceiling and falls faster than it rises; a failed ground-truth
   check suspends and lists beliefs for review, recomputing none, and only
   ground truth lifts a suspension; trust is held per context, so a source
-  trusted by day is a lead at night. The covert node: audits are drawn by a
+  trusted by day is a lead at night; within a context each check moves only
+  its own facet, a source accurate but late is relied on where lateness does
+  not matter, timeliness neither verifies nor suspends, and the set of facets
+  is the node's own. The covert node: audits are drawn by a
   keyed lot that ignores the record; a source that contradicts itself is
   suspended; a slow drift is caught while every single report still passes;
   a constant bias that each check accepts is caught; an honest noisy source is

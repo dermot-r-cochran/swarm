@@ -98,6 +98,8 @@ def main(argv: list[str] | None = None) -> str:
         failure_multiple=Fraction(2), discount=Fraction(9, 10), ceiling=Fraction(9, 10),
         own_reliability=Fraction(4, 5), cap=Fraction(2), audit_rate=Fraction(1, 5),
         drift_window=5,
+        facets={"ground truth": "accuracy", "consistency": "consistency",
+                "self-contradiction": "honesty", "drift": "honesty", "timeliness": "timeliness"},
     )
     check = P95Check(spread_pp=Fraction(75), drift_limit_pp=Fraction(10))
     ledger = SourceLedger(policy)
