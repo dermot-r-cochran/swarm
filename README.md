@@ -61,6 +61,11 @@ where:
   (`tests/test_example_admit_claim.py::test_admitted_claim_starts_at_the_uniform_prior_and_moves_only_on_evidence`)
 - `examples/archipelago_first_fork.py` – the synthesis run over a published Archipelago export
   (`tests/test_example_archipelago.py::test_example_reads_an_export_and_cites_the_record`)
+- `examples/edge_node.py` – a prototype edge node for the Proposed ADR-0006 and ADR-0007: a
+  hybrid-agent run with `--rules-first` locally, its evidence (never its beliefs) sent signed to
+  a peer, admitted at the trust a person set, aggregated exactly with each correlated group
+  counted once and capped; THEORY, not part of the package
+  (`tests/test_example_edge_node.py::test_worked_example_from_the_recorded_report`)
 - `tests/` – unit tests for all modules (`.github/scripts/check_docs.py` fails CI if a module
   in `episteme/` has no `tests/test_<module>.py`)
 - `docs/adr/` – architectural decision records
