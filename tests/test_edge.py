@@ -42,6 +42,8 @@ POLICY = en.Policy(
     failure_multiple=Fraction(2), discount=Fraction(9, 10), ceiling=Fraction(9, 10),
     own_reliability=Fraction(4, 5), cap=Fraction(2), audit_rate=Fraction(1, 5),
     drift_window=5,
+    facets={"ground truth": "accuracy", "consistency": "consistency",
+            "self-contradiction": "honesty", "drift": "honesty", "timeliness": "timeliness"},
 )
 CHECK = en.P95Check(spread_pp=Fraction(75), drift_limit_pp=Fraction(10))
 
@@ -300,9 +302,9 @@ def test_an_impostor_using_an_enrolled_id_is_bounded_by_the_cap_and_by_ground_tr
 def test_no_method_takes_a_figure_a_vouch_or_a_count():
     public = {n for n, _ in inspect.getmembers(en.SourceLedger) if not n.startswith("_")}
     writers = {"enrol", "declare_group", "revoke", "record_ground_truth", "record_consistency",
-               "record_behaviour"}
+               "record_behaviour", "record_timeliness"}
     readers = {"entries", "is_enrolled", "is_revoked", "verifier", "is_verified", "trust",
-               "weight", "group"}
+               "weight", "group", "facet", "facets"}
     assert public == writers | readers
     for name in writers:
         params = set(inspect.signature(getattr(en.SourceLedger, name)).parameters)
@@ -684,6 +686,72 @@ def test_stored_evidence_names_the_node_and_the_context_it_was_weighed_in():
     belief = hub.memory.get_belief(belief_id)
     stored = {(e.node, e.kind) for e in map(hub.memory.get_evidence, belief.evidence_ids)}
     assert stored == {("edge-a", KIND), (en.SELF, KIND)}
+
+
+# --- trust is multi-faceted, per context ---------------------------------------
+
+
+def test_each_check_moves_only_its_own_facet():
+    ledger = en.SourceLedger(POLICY)
+    ledger.enrol("edge-a", reason="test")
+    ledger.record_ground_truth("edge-a", KIND, correct=True, against="meter")
+    ledger.record_timeliness("edge-a", KIND, degree=Fraction(0), detail="arrived after the alarm")
+    facets = ledger.facets("edge-a", KIND)
+    assert set(facets) == {"accuracy", "timeliness"}  # unchecked facets are not shown
+    assert facets["accuracy"] == Fraction(19, 28)  # (0.9 + 1) / (0.9 + 1 + 0.9)
+    assert facets["timeliness"] < Fraction(1, 2)
+    assert ledger.facet("edge-a", KIND, "honesty") == Fraction(1, 2)  # neutral, never checked
+    entries = [e for e in ledger.entries if e.action == "check"]
+    assert [e.facet for e in entries] == ["accuracy", "timeliness"]
+
+
+def test_a_source_accurate_but_late_is_relied_on_where_lateness_does_not_matter():
+    hub, belief_id = _hub(["edge-a"])
+    hub.ledger.record_timeliness("edge-a", KIND, degree=Fraction(0), detail="late")
+    survey = en.Route(KIND, belief_id, en.p95_rose, relies_on=frozenset({"accuracy"}))
+    alarm = en.Route(KIND, belief_id, en.p95_rose, relies_on=frozenset({"accuracy", "timeliness"}))
+    assert hub.ledger.weight("edge-a", KIND, survey.relies_on) == ONE_PASS
+    assert hub.ledger.weight("edge-a", KIND, alarm.relies_on) == hub.ledger.facet(
+        "edge-a", KIND, "timeliness")  # the weakest facet that matters
+    assert hub.ledger.weight("edge-a", KIND) == hub.ledger.weight("edge-a", KIND, alarm.relies_on)
+    hub.routes = [survey]
+    hub.receive(_packet("edge-a"))
+    (outcome,) = hub.close_round()
+    assert outcome.offered == ONE_PASS
+    with pytest.raises(ValueError, match="not facets"):
+        hub.ledger.trust("edge-a", KIND, {"charm"})
+    with pytest.raises(ValueError, match="not a facet"):
+        hub.ledger.facet("edge-a", KIND, "charm")
+
+
+def test_timeliness_neither_verifies_nor_suspends():
+    ledger = en.SourceLedger(POLICY)
+    ledger.enrol("new", reason="test")
+    ledger.record_timeliness("new", KIND, degree=Fraction(1), detail="on time")
+    assert not ledger.is_verified("new", KIND)
+    ledger.record_ground_truth("new", KIND, correct=True, against="meter")
+    ledger.record_timeliness("new", KIND, degree=Fraction(0), detail="late")
+    assert ledger.is_verified("new", KIND)
+    with pytest.raises(ValueError, match="degree"):
+        ledger.record_timeliness("new", KIND, degree=Fraction(2), detail="x")
+
+
+def test_the_set_of_facets_is_the_nodes_own():
+    one = dataclasses.replace(POLICY, facets=dict.fromkeys(en.CHECKS, "trust"))
+    ledger = en.SourceLedger(one)
+    ledger.enrol("edge-a", reason="test")
+    ledger.record_ground_truth("edge-a", KIND, correct=True, against="meter")
+    ledger.record_consistency("edge-a", KIND, degree=Fraction(1), reference=en.SELF)
+    assert set(ledger.facets("edge-a", KIND)) == {"trust"}  # one figure, as before facets
+    for bad, message in [
+        ({k: "a" for k in en.CHECKS[:-1]}, "every check"),
+        ({**dict.fromkeys(en.CHECKS, "a"), "rumour": "a"}, "every check"),
+        ({**dict.fromkeys(en.CHECKS, "a"), "drift": " "}, "needs a name"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            dataclasses.replace(POLICY, facets=bad)
+    with pytest.raises(TypeError):
+        POLICY.facets["drift"] = "accuracy"  # a built policy cannot be changed
 
 
 # --- refusals and the paths a report can take without moving anything --------
