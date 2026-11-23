@@ -64,7 +64,7 @@ where:
 - `examples/edge_node.py` – a prototype edge node for the Proposed ADR-0006 and ADR-0007: a
   hybrid-agent run with `--rules-first` locally, its evidence (never its beliefs) sent signed to
   a peer, admitted at the trust a person set, aggregated exactly with each correlated group
-  counted once and capped; THEORY, not part of the package
+  counted once and capped, with signing behind a pluggable scheme interface; THEORY, not part of the package
   (`tests/test_example_edge_node.py::test_worked_example_from_the_recorded_report`)
 - `tests/` – unit tests for all modules (`.github/scripts/check_docs.py` fails CI if a module
   in `episteme/` has no `tests/test_<module>.py`)

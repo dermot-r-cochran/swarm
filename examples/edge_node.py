@@ -48,6 +48,20 @@ What a node does
    ``float`` only here, at that boundary, because ``Evidence.reliability`` is
    a float (ADR-0005).
 
+The cryptographic layer
+-----------------------
+Nothing outside the ``Signer``/``Verifier`` section knows how a packet is
+signed. A sender holds a ``Signer``; a person enrols a node by recording its
+``Verifier``, which holds only what checking needs (for an asymmetric scheme,
+the public key) and whose ``fingerprint`` is what the ledger writes down. The
+scheme's name is inside the signed body, so a packet cannot be re-labelled as
+another scheme, and a packet in a scheme other than the one enrolled for its
+node is refused. A ``Verifier`` also says whether it is ``symmetric`` (its
+holder could sign too), and enrolment records that, so the limit of HMAC is
+on the record rather than only in this docstring. To add a scheme, write one
+class with ``scheme``, ``symmetric``, ``fingerprint``, ``sign`` (sender side)
+and ``verify`` (receiver side).
+
 Trust (``TrustLedger``) changes only by an appended entry from a person or a
 checked outcome (ADR-0007 section 4). There is no method that takes another
 node's agreement, a report count or time online, and the tests pin that.
@@ -61,9 +75,13 @@ Guesses (marked ``GUESS`` in the code; each is the author's call)
   belief no further than 0.75. The figure is a guess, not derived.
 - The round is the window within which a group counts once. ADR-0007 leaves
   the window open; a round is closed by the caller.
-- HMAC-SHA256 with a key enrolled per node stands in for a signature. It is
-  in the standard library, but the receiver holds the same key and could
-  forge a packet; a real network needs an asymmetric scheme, chosen later.
+- HMAC-SHA256 is the only signature scheme written. It is in the standard
+  library, but the receiver holds the same secret and could forge a packet,
+  so a real network needs an asymmetric scheme. Signing and verifying sit
+  behind the ``Signer`` and ``Verifier`` interfaces (see *The cryptographic
+  layer* below), so one can be added without touching trust or aggregation.
+  Which scheme, and which library provides it, is the author's call; none is
+  named here (AGENTS.md principle 10).
 - Report data that is a list or a mapping travels as a SHA-256 digest, not in
   full, to keep packets small for an edge link. No packet size, latency or
   power figure is claimed or measured.
@@ -92,6 +110,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
+from typing import ClassVar, Protocol
 
 from episteme import (
     Belief,
@@ -170,11 +189,13 @@ class Packet:
     items: tuple[Item, ...]
     hypotheses: tuple[str, ...]
     unknowns: tuple[str, ...]
+    scheme: str = ""
     signature: str = ""
 
     def body(self) -> bytes:
         return _canonical(
             {
+                "scheme": self.scheme,
                 "node_id": self.node_id,
                 "sent_at": self.sent_at,
                 "items": [i.to_wire() for i in self.items],
@@ -184,11 +205,89 @@ class Packet:
         )
 
 
-def sign(packet: Packet, key: bytes) -> Packet:
-    """Return *packet* signed with *key* (GUESS: HMAC stands in for a signature)."""
-    mac = hmac.new(key, packet.body(), hashlib.sha256).hexdigest()
+# ----------------------------------------------------------------------
+# The cryptographic layer: the only code that knows how a packet is signed
+# ----------------------------------------------------------------------
+
+
+class Signer(Protocol):
+    """What a sending node holds: it can produce a signature over a body."""
+
+    @property
+    def scheme(self) -> str: ...
+
+    def sign(self, body: bytes) -> str: ...
+
+
+class Verifier(Protocol):
+    """What a person enrols for a node: it can check a signature, and no more.
+
+    ``symmetric`` is True when holding the verifier is enough to sign as
+    well, as with HMAC; the receiver could then forge the node's packets.
+    ``fingerprint`` identifies the verifying material for the record and
+    must not reveal a secret.
+    """
+
+    @property
+    def scheme(self) -> str: ...
+
+    @property
+    def symmetric(self) -> bool: ...
+
+    def fingerprint(self) -> str: ...
+
+    def verify(self, body: bytes, signature: str) -> bool: ...
+
+
+@dataclass(frozen=True)
+class HmacSha256:
+    """HMAC-SHA256 over a shared secret: a ``Signer`` and a ``Verifier`` at once.
+
+    GUESS, and a stand-in: it is in the standard library, but it is
+    symmetric, so whoever can verify a node's packets can also forge them.
+    """
+
+    secret: bytes = field(repr=False)
+    scheme: ClassVar[str] = "hmac-sha256"
+    symmetric: ClassVar[bool] = True
+
+    def __post_init__(self) -> None:
+        if not self.secret:
+            raise ValueError("an HMAC secret must not be empty")
+
+    def fingerprint(self) -> str:
+        # A digest of a domain-separated input, so the record never holds the
+        # secret and the fingerprint is not itself an HMAC of anything.
+        return _digest(["fingerprint", self.scheme, self.secret.hex()])
+
+    def sign(self, body: bytes) -> str:
+        return hmac.new(self.secret, body, hashlib.sha256).hexdigest()
+
+    def verify(self, body: bytes, signature: str) -> bool:
+        return hmac.compare_digest(self.sign(body), signature)
+
+
+def sign(packet: Packet, signer: Signer) -> Packet:
+    """Return *packet* labelled with *signer*'s scheme and signed by it.
+
+    The scheme is set before signing, so it is covered by the signature.
+    """
+    labelled = Packet(
+        packet.node_id,
+        packet.sent_at,
+        packet.items,
+        packet.hypotheses,
+        packet.unknowns,
+        scheme=signer.scheme,
+    )
     return Packet(
-        packet.node_id, packet.sent_at, packet.items, packet.hypotheses, packet.unknowns, mac
+        labelled.node_id,
+        labelled.sent_at,
+        labelled.items,
+        labelled.hypotheses,
+        labelled.unknowns,
+        scheme=labelled.scheme,
+        signature=signer.sign(labelled.body()),
     )
 
 
@@ -222,7 +321,7 @@ def run_hybrid_agent(
 
 def packet_from_report(
     node_id: str,
-    key: bytes,
+    signer: Signer,
     report: dict,
     *,
     sent_at: str,
@@ -261,7 +360,7 @@ def packet_from_report(
     )
     hypotheses = tuple(h["statement"] for h in report.get("hypotheses", []))
     unknowns = tuple(report.get("unknowns", []))
-    return sign(Packet(node_id, sent_at, items, hypotheses, unknowns), key)
+    return sign(Packet(node_id, sent_at, items, hypotheses, unknowns), signer)
 
 
 # ----------------------------------------------------------------------
@@ -271,7 +370,7 @@ def packet_from_report(
 
 @dataclass(frozen=True)
 class TrustEntry:
-    """One appended change to trust, keys, groups or revocation."""
+    """One appended change to trust, enrolment, groups or revocation."""
 
     action: str
     node_id: str
@@ -294,7 +393,7 @@ class TrustLedger:
 
     def __init__(self) -> None:
         self._entries: list[TrustEntry] = []
-        self._keys: dict[str, bytes] = {}
+        self._verifiers: dict[str, Verifier] = {}
         self._counts: dict[tuple[str, str], tuple[Fraction, Fraction]] = {}
         self._groups: dict[str, str] = {}
         self._revoked: set[str] = set()
@@ -308,11 +407,14 @@ class TrustLedger:
             raise ValueError("every trust entry needs a person (by) and a reason")
         self._entries.append(entry)
 
-    def enrol(self, node_id: str, key: bytes, *, by: str, reason: str) -> None:
-        if node_id in self._keys:
+    def enrol(self, node_id: str, verifier: Verifier, *, by: str, reason: str) -> None:
+        """Record the node's verifier: its scheme, whether it is symmetric, its fingerprint."""
+        if node_id in self._verifiers:
             raise ValueError(f"node {node_id!r} is already enrolled")
-        self._append(TrustEntry("enrol", node_id, by, reason, detail=_digest(key.hex())))
-        self._keys[node_id] = key
+        kind = "symmetric" if verifier.symmetric else "asymmetric"
+        detail = f"{verifier.scheme} ({kind}) {verifier.fingerprint()}"
+        self._append(TrustEntry("enrol", node_id, by, reason, detail=detail))
+        self._verifiers[node_id] = verifier
 
     def set_trust(
         self, node_id: str, kind: str, trust: Fraction, *, by: str, reason: str
@@ -354,8 +456,8 @@ class TrustLedger:
         self._append(TrustEntry("revoke", node_id, by, reason))
         self._revoked.add(node_id)
 
-    def key(self, node_id: str) -> bytes | None:
-        return self._keys.get(node_id)
+    def verifier(self, node_id: str) -> Verifier | None:
+        return self._verifiers.get(node_id)
 
     def is_revoked(self, node_id: str) -> bool:
         return node_id in self._revoked
@@ -493,17 +595,22 @@ class EdgeNode:
         """Check a peer's packet and queue its offers for the round.
 
         Returns False, with the reason in ``refused``, if the packet is
-        refused whole: unenrolled, revoked, or a signature that fails.
+        refused whole: unenrolled, revoked, signed in a scheme other than
+        the one enrolled, or a signature that fails.
         """
-        key = self.ledger.key(packet.node_id)
-        if key is None:
+        verifier = self.ledger.verifier(packet.node_id)
+        if verifier is None:
             self.refused.append((packet.node_id, "not enrolled"))
             return False
         if self.ledger.is_revoked(packet.node_id):
             self.refused.append((packet.node_id, "revoked"))
             return False
-        expected = hmac.new(key, packet.body(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, packet.signature):
+        if packet.scheme != verifier.scheme:
+            self.refused.append(
+                (packet.node_id, f"scheme {packet.scheme!r} is not the enrolled {verifier.scheme!r}")
+            )
+            return False
+        if not verifier.verify(packet.body(), packet.signature):
             self.refused.append((packet.node_id, "signature does not verify"))
             return False
 
@@ -603,7 +710,7 @@ def main(argv: list[str] | None = None) -> str:
         report = run_hybrid_agent(args.hybrid_agent, CHECKOUT_QUESTION, evidence)
         source = f"hybrid-agent --rules-first in {args.hybrid_agent}"
 
-    keys = {"edge-a": b"key-a", "edge-b": b"key-b", "edge-c": b"key-c"}
+    keys = {n: HmacSha256(f"secret-{n}".encode()) for n in ("edge-a", "edge-b", "edge-c")}
     ledger = TrustLedger()
     for node_id in ("edge-a", "edge-b"):
         ledger.enrol(node_id, keys[node_id], by="Dermot", reason="worked example")

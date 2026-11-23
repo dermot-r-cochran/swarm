@@ -12,6 +12,7 @@ no belief. The example is outside ``--cov=episteme``; these do not count
 towards the coverage ratchet.
 """
 
+import hashlib
 import importlib.util
 import json
 import random
@@ -58,7 +59,7 @@ def _hub(nodes, *, trust=Fraction(4, 5), group=None):
     """A receiving node with one belief at the uniform prior and *nodes* enrolled."""
     ledger = en.TrustLedger()
     for node_id in nodes:
-        ledger.enrol(node_id, node_id.encode(), by="tester", reason="test")
+        ledger.enrol(node_id, en.HmacSha256(node_id.encode()), by="tester", reason="test")
         if trust is not None:
             ledger.set_trust(node_id, KIND, trust, by="tester", reason="test")
     if group:
@@ -72,7 +73,9 @@ def _hub(nodes, *, trust=Fraction(4, 5), group=None):
 
 
 def _packet(node_id, report=REPORT, **kw):
-    return en.packet_from_report(node_id, node_id.encode(), report, sent_at="t", **kw)
+    return en.packet_from_report(
+        node_id, en.HmacSha256(node_id.encode()), report, sent_at="t", **kw
+    )
 
 
 def _distinct_report(n):
@@ -94,7 +97,8 @@ def test_packet_carries_evidence_proposals_and_unknowns_but_no_actions_or_belief
     assert packet.hypotheses == tuple(h["statement"] for h in REPORT["hypotheses"])
     assert packet.unknowns == tuple(REPORT["unknowns"])
     wire = json.loads(packet.body())
-    assert set(wire) == {"node_id", "sent_at", "items", "hypotheses", "unknowns"}
+    assert set(wire) == {"scheme", "node_id", "sent_at", "items", "hypotheses", "unknowns"}
+    assert wire["scheme"] == "hmac-sha256"
     samples = next(i for i in packet.items if i.item_id == "metrics:checkout").data["samples"]
     assert samples.startswith("sha256:")  # lists travel as digests
 
@@ -111,7 +115,7 @@ def test_a_report_not_awaiting_review_is_refused():
 def test_unenrolled_forged_and_revoked_packets_are_refused_whole():
     hub, _ = _hub(["edge-a", "edge-b"])
     assert not hub.receive(_packet("edge-x"))
-    forged = en.sign(_packet("edge-a"), b"not-the-key")
+    forged = en.sign(_packet("edge-a"), en.HmacSha256(b"not-the-key"))
     assert not hub.receive(forged)
     hub.ledger.revoke("edge-b", by="tester", reason="device lost")
     assert not hub.receive(_packet("edge-b"))
@@ -149,6 +153,67 @@ def test_a_node_can_lower_its_own_weight_but_never_raise_it():
     hub.receive(_packet("high", stated={KIND: Fraction(1)}))
     offered = {o.node_id: o.offered for o in hub.close_round()}
     assert offered == {"low": Fraction(1, 2), "high": Fraction(3, 5)}
+
+
+# --- the cryptographic layer ---------------------------------------------------
+
+
+class _ToyScheme:
+    """A second scheme for tests only: NOT a signature, just proof of the seam."""
+
+    scheme = "toy-sha256"
+    symmetric = False
+
+    def __init__(self, tag: bytes) -> None:
+        self._tag = tag
+
+    def fingerprint(self) -> str:
+        return "toy:" + self._tag.hex()
+
+    def sign(self, body: bytes) -> str:
+        return hashlib.sha256(self._tag + body).hexdigest()
+
+    def verify(self, body: bytes, signature: str) -> bool:
+        return self.sign(body) == signature
+
+
+def test_trust_and_aggregation_work_unchanged_with_another_scheme():
+    hub, belief_id = _hub([])
+    hub.ledger.enrol("edge-t", _ToyScheme(b"t"), by="tester", reason="test")
+    hub.ledger.set_trust("edge-t", KIND, Fraction(4, 5), by="tester", reason="test")
+    packet = en.packet_from_report("edge-t", _ToyScheme(b"t"), REPORT, sent_at="t")
+    assert packet.scheme == "toy-sha256"
+    assert hub.receive(packet)
+    (outcome,) = hub.close_round()
+    assert outcome.revised and outcome.applied == Fraction(4, 5)
+    assert hub.memory.get_belief(belief_id).confidence > 0.5
+    assert hub.ledger.entries[0].detail == "toy-sha256 (asymmetric) toy:74"
+
+
+def test_a_packet_in_a_scheme_other_than_the_enrolled_one_is_refused():
+    hub, _ = _hub(["edge-a"])
+    relabelled = en.sign(_packet("edge-a"), _ToyScheme(b"edge-a"))
+    assert not hub.receive(relabelled)
+    assert hub.refused == [("edge-a", "scheme 'toy-sha256' is not the enrolled 'hmac-sha256'")]
+
+
+def test_the_scheme_is_covered_by_the_signature():
+    hub, _ = _hub(["edge-a"])
+    packet = _packet("edge-a")
+    tampered = en.Packet(packet.node_id, packet.sent_at, packet.items, packet.hypotheses,
+                         packet.unknowns, scheme="other", signature=packet.signature)
+    assert tampered.body() != packet.body()
+    assert not hub.receive(tampered)
+
+
+def test_enrolment_records_the_scheme_and_a_fingerprint_never_the_secret():
+    ledger = en.TrustLedger()
+    ledger.enrol("edge-a", en.HmacSha256(b"s3cret"), by="tester", reason="test")
+    (entry,) = ledger.entries
+    assert entry.detail.startswith("hmac-sha256 (symmetric) sha256:")
+    assert b"s3cret".hex() not in entry.detail and "s3cret" not in repr(en.HmacSha256(b"s3cret"))
+    with pytest.raises(ValueError, match="must not be empty"):
+        en.HmacSha256(b"")
 
 
 # --- trust -------------------------------------------------------------------

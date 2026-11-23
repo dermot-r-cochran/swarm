@@ -15,7 +15,7 @@ future change breaches an ADR, not to exercise a feature.
 
 One test file per module (plus `test_public_api.py` for the package's
 exported surface, `test_properties.py` for the property suite and
-`test_check_docs.py` for the doc check), 279 tests total:
+`test_check_docs.py` for the doc check), 283 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -126,7 +126,7 @@ exported surface, `test_properties.py` for the property suite and
   count once; one group's lifetime weight on a belief is capped, so one peer
   flooding distinct observations cannot take a uniform prior past 0.75;
   aggregation conserves weight exactly and gives the same awards in any input
-  order; revocation changes no belief. Its live test runs hybrid-agent with
+  order; revocation changes no belief. Signing sits behind `Signer` and `Verifier` (HMAC-SHA256 the only scheme written): a test-only second scheme drives trust and aggregation unchanged, a packet in a scheme other than the enrolled one is refused, the scheme name is covered by the signature, and enrolment records a fingerprint, never the secret. Its live test runs hybrid-agent with
   `--rules-first` and is skipped where hybrid-agent is not installed (as in
   CI); the others read a report recorded from it in
   `tests/fixtures/hybrid_agent_rules_first_report.json` (hybrid-agent at
