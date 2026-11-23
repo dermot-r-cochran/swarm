@@ -61,7 +61,7 @@ where:
   (`tests/test_example_admit_claim.py::test_admitted_claim_starts_at_the_uniform_prior_and_moves_only_on_evidence`)
 - `examples/archipelago_first_fork.py` – the synthesis run over a published Archipelago export
   (`tests/test_example_archipelago.py::test_example_reads_an_export_and_cites_the_record`)
-- `examples/edge_node.py` – a prototype edge node for the Proposed ADR-0006 and ADR-0007: a
+- `examples/edge_node.py` – a prototype edge node for the accepted ADR-0006 and ADR-0007: a
   hybrid-agent run with `--rules-first` locally, its evidence (never its beliefs) sent to a
   peer, weighted by the receiver's own per-context record of the source's behaviour over time
   and consistency with independent data, with audits, self-contradiction and drift checks

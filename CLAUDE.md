@@ -37,15 +37,17 @@ Five collaborating layers (see `README.md` for the flow diagram in prose):
 
 Flow: claim/observation → evidence → `EpistemicCore` eligibility decision → `EpistemicMemory` write + revision record → consumers query beliefs/history. Population synthesis sits beside the interface, upstream of the core: its claims enter the flow only if a caller admits them as evidence.
 
-### The five ADRs (docs/adr/) and their guards
+### The seven ADRs (docs/adr/) and their guards
 
-Each of the five accepted decisions has a test that fails the moment it is breached, and a new ADR gets its guard test in the same change.
+Each of the seven accepted decisions has a test that fails the moment it is breached, and a new ADR gets its guard test in the same change.
 
 1. **ADR-0001, side-effect-free core** — `EpistemicCore` evaluates and returns decisions only; callers orchestrate writes through memory afterwards. Guarded structurally in `test_core.py` by an AST walk asserting `episteme.core` imports none of `episteme.memory`, `episteme.experience` or `sqlite3` (added 2026-10-19, closing the gap this file recorded since 2026-10-06; widen its `FORBIDDEN` set if new storage routes appear). `test_public_api.py` keeps the documented contract that the core never raises.
 2. **ADR-0002, append-only revision memory** — every belief change appends an immutable revision; guarded by `test_memory.py::TestBeliefRevision::test_beliefs_never_deleted`, and since 2026-11-02 by schema triggers refusing UPDATE and DELETE on `belief_revisions` and `evidence` (`TestOnDisk::test_second_connection_cannot_alter_or_remove_the_trail`) and a source guard on `memory.py` (`TestNoRewritePath`), both at Dermot's direction ("Both, as recommended").
 3. **ADR-0003, language-interface write isolation** — belief mutations flow only through core→memory, never from language output; guarded structurally in `test_interface.py` by an AST walk asserting `episteme.interface` imports neither `episteme.core` nor `episteme.memory` (widen its `FORBIDDEN` set if new writable modules appear).
 4. **ADR-0004, population synthesis is cited structure, never interpretation** — the synthesis reports clusters, positions, support and citations, produces OPINION claims and no beliefs, and generates no interpretation; guarded in `test_population.py` by an AST walk asserting no function returns an `Interpretation` and that the module imports neither `core` nor `memory`, and by the refusal of an unsigned `Interpretation`.
 5. **ADR-0005, belief confidence is the mean of a reliability-weighted Beta posterior** — supporting evidence adds its reliability to alpha, counter-evidence to beta, confidence is alpha/(alpha+beta) and is never written apart from the counts; one record's weight is capped so the mean moves no more than `max_confidence_delta`. Guarded by `test_models.py::TestBetaConfidence::test_confidence_cannot_be_asserted_apart_from_counts` and `test_memory.py::TestBetaCounts::test_confidence_has_no_write_path_of_its_own` (added 2026-10-25 at Dermot's direction). Calibration against outcomes is unmeasured: the repository holds no outcome data.
+6. **ADR-0006, a peer network has hybrid-agents as its nodes** — a node's report arrives as evidence weighted by the receiver's own record, its hypotheses as claims, never beliefs, and peers agreeing is not evidence. Guarded in `test_example_edge_node.py` by `test_a_hypothesis_is_held_as_a_claim_and_never_stored_as_a_belief` and `test_agreement_among_unverified_peers_verifies_nothing` (accepted 2026-11-23 at Dermot's direction).
+7. **ADR-0007, trust in an edge node rests on its behaviour over time and its consistency with other data** — each node's own record per (source, context), never signatures, vouching or a set figure; a new source neutral and unverified; audits by lot, suspension on a failed check, self-contradiction or drift; every figure the node's own, within section 10's floors. Its eight guards are named in its Consequences, all in `test_example_edge_node.py` (accepted 2026-11-23 at Dermot's direction). The prototype stays in `examples/`; moving it into the package is a separate change.
 
 Testing mechanics — what each test file guards, the coverage-ratchet and lint policies in full, how to extend the suite, and the known gaps — live in `TestingStrategy.md`; don't duplicate them here.
 
@@ -56,7 +58,7 @@ Dermot's direction, 2026-10-11: the account-wide split recorded in `star-rangers
 - **Fable: whole-repo next-improvement reads.** Fable may read the whole repository and propose its next improvement (the `next-improvement` question); that is reading and proposing, and it widens no one's write reservations: the protected parts below, `test_memory.py` among them, stay Opus-or-above for writing (Dermot, 30 October 2026, "Accept all four").
 - **Haiku: reading and trivial fixes.** Read-only searches, summarising a failing CI log, `check_docs.py` drift, and simple `ruff` fixes. The coverage gate, `ruff`, `mypy` and the doc check catch its mistakes.
 - **Sonnet: code and tests.** Logic changes and new tests, including tests that raise the coverage ratchet. A test that merely passes is not necessarily one that checks the right thing, which is why this is not Haiku's.
-- **Opus: the protected parts.** `AGENTS.md`'s epistemic rules, the five ADRs, and their guard tests in `test_core.py`, `test_models.py`, `test_memory.py`, `test_interface.py` and `test_population.py`. No model below Opus edits these, even where a gate would catch the mistake.
+- **Opus: the protected parts.** `AGENTS.md`'s epistemic rules, the seven ADRs, and their guard tests in `test_core.py`, `test_models.py`, `test_memory.py`, `test_interface.py`, `test_population.py` and `test_example_edge_node.py`. No model below Opus edits these, even where a gate would catch the mistake.
 - **Opus reviews and approves** a Haiku or Sonnet subagent's diff, and it merges when CI is green. Opus escalates where a change needs a judgement it should not make alone: to Fable where one is available, otherwise to Dermot directly as choices (Dermot, 2026-10-11). Haiku may also work under a Sonnet subagent, its searches and summaries feeding Sonnet's job as input; approval still comes from Opus, never from Sonnet.
 - **Chrome extension:** Opus for anything that signs in, submits or posts; Sonnet for read-only browsing; never Haiku. The extension acts in Dermot's own Chrome with his sign-ins, and a web page can carry text written to steer the model.
 
@@ -114,7 +116,8 @@ shared is stated exactly.
   each one's tests reach its decisions, is listed once, in the map's *Siblings
   by convention* section, and not restated here: counts copied into several
   files drift (this paragraph said the map still said three after the map had
-  been corrected). Here all five ADRs are guarded by a named test (since
-  2026-10-19, the fifth since 2026-10-25). When a convention here needs
+  been corrected). Here all seven ADRs are guarded by a named test (since
+  2026-10-19, the fifth since 2026-10-25, the sixth and seventh since
+  2026-11-23). When a convention here needs
   changing, those are the reference for how it is done in the account, and a
   change to the convention itself is worth landing in all of them or in none.

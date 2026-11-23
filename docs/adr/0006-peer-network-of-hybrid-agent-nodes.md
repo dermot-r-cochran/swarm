@@ -1,6 +1,6 @@
 # ADR-0006: A peer network, if one is built, has hybrid-agents as its nodes
 
-- **Status:** Proposed
+- **Status:** Accepted (the author, 23 November 2026)
 - **Date:** 2026-11-11
 
 ## Context
@@ -24,7 +24,7 @@ belief, and a revision nobody can trace back to what caused it.
 Nothing needs a network yet. This record says where one would be built and
 under which rules, so that neither repository grows one by accident.
 
-## Decision (proposed)
+## Decision
 
 If a peer network is built, it is built in this repository, and each node is
 a hybrid-agent.
@@ -53,13 +53,14 @@ a hybrid-agent.
 
 ## Consequences
 
-- Nothing is built. `episteme` gains no dependency on hybrid-agent, and
-  hybrid-agent gains no peer code, until a concrete need is shown and this
-  record is accepted.
-- On acceptance, this record gets its guard test in the same change, as the
-  five accepted ADRs did. The likely guard: a node's hypothesis can never be
-  stored as a belief, and an update supported only by matching reports from
-  other nodes is refused.
+- `episteme` gains no dependency on hybrid-agent, and hybrid-agent gains no
+  peer code.
+- Accepted on 23 November 2026, after the prototype in `examples/edge_node.py`
+  merged (#47, #48). Its guards are in `tests/test_example_edge_node.py`:
+  `test_a_hypothesis_is_held_as_a_claim_and_never_stored_as_a_belief` and
+  `test_agreement_among_unverified_peers_verifies_nothing`.
+- The prototype stays in `examples/`. Moving any of it into the `episteme`
+  package is a separate change, made when a concrete need is shown.
 - Left open for acceptance: the transport, whether nodes span machines, how
   a node's reliability is set and revised, and whether a node may also take
   evidence from its own local partner.

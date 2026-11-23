@@ -184,6 +184,17 @@ def test_a_source_can_lower_its_own_weight_but_never_raise_it():
     assert offered == {"low": Fraction(1, 2), "high": ONE_PASS}
 
 
+def test_no_figure_a_source_sends_changes_the_trust_held_in_it():
+    # A packet carries reports, never a figure from the sender's own policy or record.
+    assert {f.name for f in dataclasses.fields(en.Packet)} == {
+        "node_id", "sent_at", "items", "hypotheses", "unknowns", "scheme", "signature"
+    }
+    hub, _ = _hub(["edge-a"])
+    before = (hub.ledger.trust("edge-a", KIND), len(hub.ledger.entries))
+    hub.receive(_packet("edge-a", stated={KIND: Fraction(1)}))
+    assert (hub.ledger.trust("edge-a", KIND), len(hub.ledger.entries)) == before
+
+
 # --- the cryptographic layer ---------------------------------------------------
 
 

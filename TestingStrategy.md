@@ -15,7 +15,7 @@ future change breaches an ADR, not to exercise a feature.
 
 One test file per module (plus `test_public_api.py` for the package's
 exported surface, `test_properties.py` for the property suite and
-`test_check_docs.py` for the doc check), 307 tests total:
+`test_check_docs.py` for the doc check), 308 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -117,8 +117,8 @@ exported surface, `test_properties.py` for the property suite and
   outside `--cov=episteme`, so this is a smoke test of the crossing, not a
   coverage contributor.
 - `test_example_edge_node.py` (added 2026-11-22) — the edge-node prototype in
-  `examples/edge_node.py`, against the guards ADR-0006 and ADR-0007 (both
-  Proposed) name as likely, and the author's rulings of 23 November 2026 on
+  `examples/edge_node.py`, holding the guards of ADR-0006 and ADR-0007
+  (accepted 23 November 2026; each ADR names its guard tests), and the author's rulings of 23 November 2026 on
   what trust may rest on. Admission: a hypothesis is held as a `Claim` and
   never stored as a belief; unenrolled, forged and revoked packets are
   refused whole. Trust from behaviour and consistency: a new source is neutral
