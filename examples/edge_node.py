@@ -37,7 +37,7 @@ What a node does
      section 5). A node no one placed in a group is a group of its own, so a
      single peer sending many distinct observations in one round counts once.
      The highest weight is kept; ties go to the lowest (node, item) id.
-   - **A lifetime influence cap per group and belief** (``PEER_CAP``). No one
+   - **A lifetime influence cap per group and belief** (``Policy.cap``). No one
      group can ever add more weight to one belief, on both sides together,
      than the cap. A belief can only go far on evidence from several groups.
 
@@ -70,7 +70,7 @@ cryptographic signatures - key management is a weak link."* So:
   stolen or mismanaged key does the same. Neither is assumed away. What
   bounds the damage is what does not rest on keys: a pair's trust is only
   what its behaviour has earned on this node's own checks, one group adds at most
-  ``PEER_CAP`` to any belief, the core moves a belief at most
+  ``Policy.cap`` to any belief, the core moves a belief at most
   ``max_confidence_delta`` per record, and a report later checked wrong
   lowers the pair's trust. That bound is THEORY, pinned for the cap by a test,
   not a measured resistance to any attack.
@@ -143,7 +143,7 @@ this, and a good record buys no exemption from any of the following:
   all of them lean one way. The node averages a source's signed deviations
   from independent references over ``drift_window`` reports, and a mean
   beyond the kind's limit is drift: it suspends a verified source.
-- **Trust falls faster than it rises.** A failure weighs twice a pass, every
+- **Trust falls faster than it rises.** A failure weighs ``failure_multiple`` passes, every
   outcome discounts the history, trust has a ceiling, and a suspension lists
   the beliefs holding the source's evidence for review, none recomputed.
 
@@ -158,25 +158,29 @@ a signature, a report count or time online, and the tests pin that.
 Open risk, stated rather than solved: sources sharing a cause nobody declared
 can look consistent with each other; consistency then overstates agreement.
 
-Guesses (marked ``GUESS`` in the code; each is the author's call)
------------------------------------------------------------------
-- Every figure in ``Policy``: ground truth 1 and consistency 1/2 per check,
-  a failure twice a pass, a discount of 9/10 per outcome, a ceiling of 9/10,
-  the node's own observations at 4/5. ADR-0007 s. 10 leaves them to each
-  node; these are starting points, not derived.
-- A passed consistency check verifies a pair, as a passed ground-truth check
-  does; only a failed ground-truth check suspends one.
-- ``P95_TOLERANCE_PP``: two p95 comparisons agree within 25 percentage points.
-- An audit rate of 1 in 5, a drift window of 5 reports, and
-  ``P95_DRIFT_LIMIT_PP`` of 10 points of mean lean.
-- Self-contradiction and drift suspend a verified source, as a failed
-  ground-truth check does; a single inconsistency with another source only
-  lowers the record.
+Figures: none built in
+----------------------
+*"If the figures are arbitrary then they are either fuzzy or should be
+abstracted out"* (the author, 23 November 2026). Every figure the mechanism
+uses is abstracted out: ``Policy`` (check weights, failure multiple,
+discount, ceiling, own reliability, cap, audit rate, drift window) and
+``P95Check`` (tolerance and drift limit) have no defaults, and a node that
+builds one must supply each. ``Policy`` refuses only settings that would make
+the mechanism mean something else, such as consistency outranking ground
+truth or trust falling slower than it rises. The figures in ``main`` are the
+worked example's inputs, not the node's. ``NEUTRAL``, Beta(1, 1), is not one
+of them: it is the author's ruling that a new source is neutral (ADR-0007
+s. 3). Making a crisp setting fuzzy, such as a degree of consistency in place
+of a tolerance, is open and not built.
+
+Design guesses (marked ``GUESS`` in the code; each is the author's call)
+-----------------------------------------------------------------------
+- A passed consistency check verifies a new pair, as a passed ground-truth
+  check does. Self-contradiction and drift suspend a verified source, as a
+  failed ground-truth check does; a single inconsistency with another source
+  only lowers the record.
 - A source's reports on one belief are expected to agree with each other;
   a kind whose subject changes over time needs a comparator that allows it.
-- ``PEER_CAP`` is 2, the same weight as the prior a belief starts from
-  (``PRIOR_STRENGTH``). From a uniform prior one group alone can then take a
-  belief no further than 0.75. The figure is a guess, not derived.
 - The round is the window within which a group counts once. ADR-0007 leaves
   the window open; a round is closed by the caller.
 - HMAC-SHA256 is the only integrity scheme written. It is in the standard
@@ -230,11 +234,6 @@ from episteme import (
     ExperienceLoop,
     Observation,
 )
-from episteme.models import PRIOR_STRENGTH
-
-#: GUESS: the most weight one correlation group may ever add to one belief,
-#: both sides together. Equal to the weight of a new belief's prior.
-PEER_CAP = Fraction(PRIOR_STRENGTH).limit_denominator()
 
 #: The question the worked example asks hybrid-agent.
 CHECKOUT_QUESTION = "Why did checkout p95 latency go up after the latest deploy?"
@@ -484,32 +483,38 @@ SELF = "self"
 class Policy:
     """The figures a node sets for itself, for its own context (ADR-0007 s. 10).
 
-    Every default is a GUESS. The node that judges sets them, never the
-    source judged, and no figure here is a trust score for any source.
+    There are no defaults (the author, 23 November 2026: *"If the figures are
+    arbitrary then they are either fuzzy or should be abstracted out"*). The
+    mechanism holds no figure of its own; the node that judges supplies every
+    one, never the source judged, and checks here hold only what makes the
+    mechanism mean what it says (a discount in (0, 1], ground truth outranking
+    consistency, and so on). No figure here is a trust score for any source.
     """
 
     #: Weight a ground-truth check adds to a record.
-    ground_truth_weight: Fraction = Fraction(1)
-    #: Weight a consistency check adds. Below ground truth, so a lone source
-    #: later found right is not out-voted by agreement among others.
-    consistency_weight: Fraction = Fraction(1, 2)
-    #: A failed check weighs this many times a passed one (ADR-0007 s. 8).
-    failure_multiple: Fraction = Fraction(2)
+    ground_truth_weight: Fraction
+    #: Weight a consistency check adds. At most the ground-truth weight, so a
+    #: lone source later found right is not out-voted by agreement.
+    consistency_weight: Fraction
+    #: A failed check weighs this many times a passed one; above 1, trust
+    #: falls faster than it rises (ADR-0007 s. 8).
+    failure_multiple: Fraction
     #: Both counts are multiplied by this at every new outcome, so recent
     #: behaviour counts most and a long good run cannot cushion a switch.
-    discount: Fraction = Fraction(9, 10)
+    discount: Fraction
     #: No source's trust exceeds this, however long its record.
-    ceiling: Fraction = Fraction(9, 10)
+    ceiling: Fraction
     #: The reliability of the node's own observations.
-    own_reliability: Fraction = Fraction(4, 5)
-    #: Most weight one correlation group may ever add to one belief.
-    cap: Fraction = PEER_CAP
+    own_reliability: Fraction
+    #: Most weight one correlation group may ever add to one belief, both
+    #: sides together.
+    cap: Fraction
     #: Share of received items drawn for a ground-truth audit, whatever the
     #: source's record: checks never stop (ADR-0007 s. 8).
-    audit_rate: Fraction = Fraction(1, 5)
+    audit_rate: Fraction
     #: How many recent deviations from independent references are averaged
     #: to detect slow drift.
-    drift_window: int = 5
+    drift_window: int
 
     def __post_init__(self) -> None:
         for name in ("ground_truth_weight", "consistency_weight", "failure_multiple", "cap"):
@@ -523,8 +528,10 @@ class Policy:
             raise ValueError("own_reliability must be in [0, 1]")
         if self.consistency_weight > self.ground_truth_weight:
             raise ValueError("ground truth must outrank consistency")
-        if not 0 <= self.audit_rate <= 1:
-            raise ValueError("audit_rate must be in [0, 1]")
+        if self.failure_multiple < 1:
+            raise ValueError("failure_multiple must be at least 1: trust may not fall slower")
+        if not 0 < self.audit_rate <= 1:
+            raise ValueError("audit_rate must be in (0, 1]: checks never stop")
         if self.drift_window < 2:
             raise ValueError("drift_window must be at least 2")
 
@@ -564,8 +571,8 @@ class SourceLedger:
     peer's vouching, a signature, a report count or time online.
     """
 
-    def __init__(self, policy: Policy | None = None) -> None:
-        self.policy = policy or Policy()
+    def __init__(self, policy: Policy) -> None:
+        self.policy = policy
         self._entries: list[RecordEntry] = []
         self._enrolled: set[str] = set()
         self._verifiers: dict[str, Verifier] = {}
@@ -767,7 +774,7 @@ def _offer_key(o: Offer) -> tuple:
 
 
 def aggregate(
-    offers: Iterable[Offer], used: dict[tuple[str, str], Fraction], cap: Fraction = PEER_CAP
+    offers: Iterable[Offer], used: dict[tuple[str, str], Fraction], cap: Fraction
 ) -> tuple[list[Award], Fraction]:
     """Turn one round's offers into awards, exactly and in a fixed order.
 
@@ -854,7 +861,7 @@ class EdgeNode:
     comparators: dict[str, Callable[[Item, Item], bool | None]] = field(default_factory=dict)
     #: Per kind: a signed deviation of an item from a reference, and the limit
     #: on its recent mean beyond which a source is drifting.
-    deviations: dict[str, tuple[Callable[[Item, Item], float | None], Fraction]] = field(
+    deviations: dict[str, tuple[Callable[[Item, Item], Fraction | None], Fraction]] = field(
         default_factory=dict
     )
     #: Secret to this node, so a source cannot tell which items will be audited.
@@ -1045,7 +1052,7 @@ class EdgeNode:
             return
         window = self.ledger.policy.drift_window
         recent = self._drift.setdefault((s.node_id, s.context), [])
-        recent.append(Fraction(str(d)))
+        recent.append(Fraction(d))
         del recent[:-window]
         if len(recent) == window:
             mean = sum(recent, Fraction(0)) / window
@@ -1149,29 +1156,41 @@ def p95_rose(item: Item) -> bool | None:
     return change > 0
 
 
-#: GUESS: two p95 comparisons agree within this many percentage points.
-P95_TOLERANCE_PP = 25.0
-
-
-def p95_consistent(a: Item, b: Item) -> bool | None:
-    """Comparator: two comparisons agree if p95 moved the same way by about as much."""
+def _p95(a: Item, b: Item) -> tuple[Fraction, Fraction] | None:
     x, y = a.data.get("p95_change_pct"), b.data.get("p95_change_pct")
     if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
         return None
-    return (x > 0) == (y > 0) and abs(x - y) <= P95_TOLERANCE_PP
+    return Fraction(str(x)), Fraction(str(y))
 
 
-#: GUESS: a mean lean of more than this many percentage points over the
-#: drift window is drift, though each report may sit inside the tolerance.
-P95_DRIFT_LIMIT_PP = Fraction(10)
+@dataclass(frozen=True)
+class P95Check:
+    """How a node compares two p95 comparisons. Both figures are the node's own.
 
+    *tolerance_pp*: two comparisons agree if p95 moved the same way and
+    within this many percentage points. *drift_limit_pp*: a mean lean beyond
+    this over the drift window is drift, though each report may sit inside
+    the tolerance. No default for either.
+    """
 
-def p95_deviation(a: Item, b: Item) -> float | None:
-    """Signed deviation: how far *a*'s p95 change sits above *b*'s."""
-    x, y = a.data.get("p95_change_pct"), b.data.get("p95_change_pct")
-    if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
-        return None
-    return x - y
+    tolerance_pp: Fraction
+    drift_limit_pp: Fraction
+
+    def __post_init__(self) -> None:
+        if self.tolerance_pp <= 0 or self.drift_limit_pp <= 0:
+            raise ValueError("tolerance_pp and drift_limit_pp must be positive")
+
+    def consistent(self, a: Item, b: Item) -> bool | None:
+        pair = _p95(a, b)
+        if pair is None:
+            return None
+        x, y = pair
+        return (x > 0) == (y > 0) and abs(x - y) <= self.tolerance_pp
+
+    def deviation(self, a: Item, b: Item) -> Fraction | None:
+        """Signed deviation: how far *a*'s p95 change sits above *b*'s."""
+        pair = _p95(a, b)
+        return None if pair is None else pair[0] - pair[1]
 
 
 def main(argv: list[str] | None = None) -> str:
@@ -1188,7 +1207,16 @@ def main(argv: list[str] | None = None) -> str:
         report = run_hybrid_agent(args.hybrid_agent, CHECKOUT_QUESTION, evidence)
         source = f"hybrid-agent --rules-first in {args.hybrid_agent}"
 
-    ledger = SourceLedger()
+    # The worked example's own settings. They are inputs to this run, not part
+    # of the mechanism, and another node in another context would set its own.
+    policy = Policy(
+        ground_truth_weight=Fraction(1), consistency_weight=Fraction(1, 2),
+        failure_multiple=Fraction(2), discount=Fraction(9, 10), ceiling=Fraction(9, 10),
+        own_reliability=Fraction(4, 5), cap=Fraction(2), audit_rate=Fraction(1, 5),
+        drift_window=5,
+    )
+    check = P95Check(tolerance_pp=Fraction(25), drift_limit_pp=Fraction(10))
+    ledger = SourceLedger(policy)
     # edge-a signs, as an integrity check; edge-b does not. Neither changes trust.
     ledger.enrol("edge-a", HmacSha256(b"secret-edge-a"), reason="worked example")
     ledger.enrol("edge-b", reason="worked example")
@@ -1205,8 +1233,8 @@ def main(argv: list[str] | None = None) -> str:
     assert belief.id is not None
     kind = "compute.compare_windows"
     hub = EdgeNode("hub", memory, ledger, [Route(kind, belief.id, p95_rose)],
-                   comparators={kind: p95_consistent},
-                   deviations={kind: (p95_deviation, P95_DRIFT_LIMIT_PP)},
+                   comparators={kind: check.consistent},
+                   deviations={kind: (check.deviation, check.drift_limit_pp)},
                    audit_salt=b"worked-example")
 
     lines = [f"report: {source}"]

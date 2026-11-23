@@ -15,7 +15,7 @@ future change breaches an ADR, not to exercise a feature.
 
 One test file per module (plus `test_public_api.py` for the package's
 exported surface, `test_properties.py` for the property suite and
-`test_check_docs.py` for the doc check), 300 tests total:
+`test_check_docs.py` for the doc check), 303 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -134,7 +134,7 @@ exported surface, `test_properties.py` for the property suite and
   keyed lot that ignores the record; a source that contradicts itself is
   suspended; a slow drift is caught while every single report still passes;
   a constant bias inside the tolerance is caught; an honest noisy source is
-  never flagged. Signatures: a signed and an unsigned packet get the same
+  never flagged. Figures: the mechanism has none built in (`Policy`, `P95Check` and `SourceLedger` take every figure, with no defaults), `Policy` refuses settings that change what the mechanism means (ADR-0007 s. 10's floors), and the same reports judged under two policies give two outcomes. Signatures: a signed and an unsigned packet get the same
   weight; a node enrolled with a verifier must pass it; integrity sits behind
   `Signer` and `Verifier` (HMAC-SHA256 the only scheme written), a test-only
   second scheme runs unchanged, the scheme name is signed, and enrolment

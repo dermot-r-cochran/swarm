@@ -229,6 +229,12 @@ from its own understanding of its context: what it senses, what a wrong
 belief would cost it, how often it can afford a check, how often its links
 drop.
 
+The author, 23 November 2026: *"If the figures are arbitrary then they are
+either fuzzy or should be abstracted out."* So no figure is built into the
+mechanism, not even as a default: each is a parameter the node supplies. A
+crisp figure may later give way to a fuzzy one (a degree of consistency in
+place of a tolerance, say); that is open.
+
 - **The node that judges sets them, never the node judged.** Each node keeps
   its own memory (ADR-0006), so each node holds its own trust in its peers and
   applies its own figures to the reports it receives. No node's figures
@@ -242,9 +248,10 @@ drop.
 - **Context sets the figures; it cannot remove the floors.** Whatever a node
   understands, these hold everywhere and are the guards: an unverified pair
   is never admitted (section 3); the check rate is above zero; a failure
-  weighs at least as much as a success; the ceiling is below 1; agreement
-  never raises trust (section 4); and trust never transfers between kinds
-  (section 2). A context that seems to call for breaking one is recorded as
+  weighs at least as much as a success; ground truth weighs at least as
+  much as consistency; the ceiling is below 1; agreement among sources that
+  nobody has checked never raises trust (section 4); and trust never
+  transfers between contexts (section 2). A context that seems to call for breaking one is recorded as
   a reason to revisit this record, not acted on.
 - **Two nodes may trust the same peer differently.** That is expected, not a
   fault: their contexts differ. Their disagreement is kept (AGENTS.md 5), and

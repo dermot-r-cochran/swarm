@@ -14,6 +14,7 @@ The example is outside ``--cov=episteme``; these do not count towards the
 coverage ratchet.
 """
 
+import dataclasses
 import hashlib
 import importlib.util
 import inspect
@@ -48,6 +49,15 @@ def _load():
 
 en = _load()
 
+# The tests' own settings: the mechanism has none built in.
+POLICY = en.Policy(
+    ground_truth_weight=Fraction(1), consistency_weight=Fraction(1, 2),
+    failure_multiple=Fraction(2), discount=Fraction(9, 10), ceiling=Fraction(9, 10),
+    own_reliability=Fraction(4, 5), cap=Fraction(2), audit_rate=Fraction(1, 5),
+    drift_window=5,
+)
+CHECK = en.P95Check(tolerance_pp=Fraction(25), drift_limit_pp=Fraction(10))
+
 
 _OPEN: list[EpistemicMemory] = []
 
@@ -59,13 +69,13 @@ def _close_stores():
         _OPEN.pop().close()
 
 
-def _hub(nodes, *, verified=True, group=None, signed=True):
+def _hub(nodes, *, verified=True, group=None, signed=True, policy=None):
     """A receiving node with one belief at the uniform prior and *nodes* enrolled.
 
     With *verified*, each node has passed one ground-truth check, the only
     way a test gives a source weight: no figure can be set.
     """
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(policy or POLICY)
     for node_id in nodes:
         verifier = en.HmacSha256(node_id.encode()) if signed else None
         ledger.enrol(node_id, verifier, reason="test")
@@ -78,8 +88,8 @@ def _hub(nodes, *, verified=True, group=None, signed=True):
     belief = Belief("p95 regressed", BeliefType.THEORY, 0.5, "checkout")
     memory.add_belief(belief)
     hub = en.EdgeNode("hub", memory, ledger, [en.Route(KIND, belief.id, en.p95_rose)],
-                      comparators={KIND: en.p95_consistent},
-                      deviations={KIND: (en.p95_deviation, en.P95_DRIFT_LIMIT_PP)},
+                      comparators={KIND: CHECK.consistent},
+                      deviations={KIND: (CHECK.deviation, CHECK.drift_limit_pp)},
                       audit_salt=b"test")
     return hub, belief.id
 
@@ -227,7 +237,7 @@ def test_the_scheme_is_covered_by_the_signature():
 
 
 def test_enrolment_records_the_scheme_and_a_fingerprint_never_the_secret():
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(POLICY)
     ledger.enrol("edge-a", en.HmacSha256(b"s3cret"), reason="test")
     (entry,) = ledger.entries
     assert entry.detail.startswith("hmac-sha256 (symmetric) sha256:")
@@ -240,7 +250,7 @@ def test_enrolment_records_the_scheme_and_a_fingerprint_never_the_secret():
 
 
 def test_a_signature_never_changes_an_items_weight():
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(POLICY)
     ledger.enrol("signed", en.HmacSha256(b"k"), reason="test")
     ledger.enrol("unsigned", reason="test")
     for node in ("signed", "unsigned"):
@@ -266,7 +276,7 @@ def test_a_node_enrolled_with_a_verifier_must_pass_its_integrity_check():
 
 
 def test_enrolment_gives_no_weight():
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(POLICY)
     ledger.enrol("edge-a", reason="test")
     assert ledger.is_enrolled("edge-a") and ledger.verifier("edge-a") is None
     assert ledger.entries[0].detail == "no integrity check"
@@ -327,7 +337,7 @@ def test_consistency_with_the_nodes_own_data_verifies_a_source():
 
 
 def test_a_reference_must_be_independent_and_verified():
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(POLICY)
     for n in ("a", "b", "c"):
         ledger.enrol(n, reason="test")
     ledger.declare_group("g", ["a", "b"], reason="shared firmware")
@@ -351,22 +361,23 @@ def test_an_inconsistency_lowers_the_record_and_is_kept_as_a_dispute():
 
 
 def test_ground_truth_outranks_consistency():
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(POLICY)
     for n in ("truth", "agree"):
         ledger.enrol(n, reason="test")
     ledger.record_ground_truth("truth", KIND, correct=True, against="reference meter")
     ledger.record_consistency("agree", KIND, consistent=True, reference=en.SELF)
     assert ledger.trust("truth", KIND) > ledger.trust("agree", KIND)
     with pytest.raises(ValueError, match="outrank"):
-        en.Policy(ground_truth_weight=Fraction(1, 2), consistency_weight=Fraction(1))
+        dataclasses.replace(POLICY, ground_truth_weight=Fraction(1, 2),
+                            consistency_weight=Fraction(1))
 
 
 def test_recent_behaviour_counts_most_and_trust_has_a_ceiling():
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(POLICY)
     ledger.enrol("edge-a", reason="test")
     for _ in range(50):
         ledger.record_ground_truth("edge-a", KIND, correct=True, against="meter")
-    assert ledger.trust("edge-a", KIND) == en.Policy().ceiling
+    assert ledger.trust("edge-a", KIND) == POLICY.ceiling
     assert ledger.record_ground_truth("edge-a", KIND, correct=False, against="meter")
     assert ledger.weight("edge-a", KIND) == 0  # one failure suspends at once
     for _ in range(3):
@@ -376,7 +387,7 @@ def test_recent_behaviour_counts_most_and_trust_has_a_ceiling():
 
 
 def test_trust_falls_faster_than_it_rises():
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(POLICY)
     for n in ("up", "down"):
         ledger.enrol(n, reason="test")
     ledger.record_ground_truth("up", KIND, correct=True, against="meter")
@@ -399,11 +410,53 @@ def test_a_verified_source_checked_wrong_is_suspended_and_nothing_recomputed():
         hub.check_ground_truth("edge-a", "never-sent", correct=True, against="x")
 
 
+# --- figures: none built in ------------------------------------------------------
+
+
+def test_the_mechanism_has_no_figure_of_its_own():
+    with pytest.raises(TypeError):
+        en.Policy()  # every figure must be supplied
+    with pytest.raises(TypeError):
+        en.P95Check()
+    with pytest.raises(TypeError):
+        en.SourceLedger()
+    assert inspect.signature(en.aggregate).parameters["cap"].default is inspect.Parameter.empty
+    for name in ("PEER_CAP", "P95_TOLERANCE_PP", "P95_DRIFT_LIMIT_PP"):
+        assert not hasattr(en, name)
+
+
+def test_policy_refuses_settings_that_change_what_the_mechanism_means():
+    for change, message in [
+        ({"failure_multiple": Fraction(1, 2)}, "fall slower"),
+        ({"discount": Fraction(0)}, "discount"),
+        ({"ceiling": Fraction(1)}, "ceiling"),
+        ({"audit_rate": Fraction(3, 2)}, "audit_rate"),
+        ({"audit_rate": Fraction(0)}, "checks never stop"),
+        ({"drift_window": 1}, "drift_window"),
+        ({"cap": Fraction(0)}, "cap"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            dataclasses.replace(POLICY, **change)
+    with pytest.raises(ValueError, match="positive"):
+        en.P95Check(tolerance_pp=Fraction(0), drift_limit_pp=Fraction(10))
+
+
+def test_the_same_reports_judged_under_two_policies_give_two_outcomes():
+    strict = dataclasses.replace(POLICY, drift_window=3)
+    caught = {}
+    for name, policy in (("lenient", POLICY), ("strict", strict)):
+        hub, _ = _hub(["biased"], policy=policy)
+        for n in range(3):
+            _round(hub, "biased", n, OWN_P95 + 12)
+        caught[name] = _findings(hub, "biased")
+    assert caught == {"lenient": [], "strict": ["drift"]}
+
+
 # --- trust is held per context ------------------------------------------------
 
 
 def test_a_source_trusted_in_one_context_is_not_trusted_in_another():
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(POLICY)
     ledger.enrol("edge-a", reason="test")
     memory = EpistemicMemory()
     _OPEN.append(memory)
@@ -474,7 +527,7 @@ def test_a_source_that_contradicts_itself_is_suspended():
 
 
 def test_only_ground_truth_lifts_a_suspension():
-    ledger = en.SourceLedger()
+    ledger = en.SourceLedger(POLICY)
     ledger.enrol("edge-a", reason="test")
     ledger.record_ground_truth("edge-a", KIND, correct=True, against="meter")
     assert ledger.record_behaviour("edge-a", KIND, finding="drift", detail="test")
@@ -497,7 +550,7 @@ def test_a_slow_drift_is_caught_while_every_single_report_still_passes():
     consistency = [e for e in hub.ledger.entries
                    if e.node_id == "drifter" and e.reason == "consistency with self"]
     assert all(e.passed for e in consistency)  # each report alone looked fine
-    assert caught_at is not None and 3 * caught_at < en.P95_TOLERANCE_PP
+    assert caught_at is not None and 3 * caught_at < CHECK.tolerance_pp
     assert _findings(hub, "drifter") == ["drift"]
     assert hub.review == [belief_id]
 
@@ -538,7 +591,7 @@ def test_one_source_flooding_distinct_observations_cannot_pass_its_cap():
         hub.close_round()
     belief = hub.memory.get_belief(belief_id)
     # Uniform prior Beta(1, 1) plus at most the cap of 2 from one group: 3/4 at most.
-    assert belief.alpha - 1 <= float(en.PEER_CAP) + 1e-12
+    assert belief.alpha - 1 <= float(POLICY.cap) + 1e-12
     assert belief.confidence <= 0.75 + 1e-12
 
 
@@ -560,10 +613,10 @@ def test_aggregation_is_exact_conserving_and_independent_of_order():
         for i in range(12)
     ]
     used = {("g0", "b"): Fraction(17, 10)}
-    expected, absorbed = en.aggregate(offers, used)
+    expected, absorbed = en.aggregate(offers, used, POLICY.cap)
     for _ in range(20):
         rng.shuffle(offers)
-        assert en.aggregate(offers, used) == (expected, absorbed)
+        assert en.aggregate(offers, used, POLICY.cap) == (expected, absorbed)
     total = sum(o.weight for o in offers)
     assert sum(a.applied for a in expected) + absorbed == total
     assert sum(1 for a in expected if a.applied) == 3  # one per group
