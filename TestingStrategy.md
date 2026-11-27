@@ -14,8 +14,9 @@ future change breaches an ADR, not to exercise a feature.
 ## Layer 1 — the test suite (`tests/`, pytest)
 
 One test file per module (plus `test_public_api.py` for the package's
-exported surface, `test_properties.py` for the property suite and
-`test_check_docs.py` for the doc check), 325 tests total:
+exported surface, `test_properties.py` for the property suite,
+`test_edge_breaks.py` for the breaks of the edge node that got through and
+`test_check_docs.py` for the doc check), 331 tests total:
 
 - `test_models.py` — validation invariants on the dataclasses: reliability and
   confidence bounded to [0, 1] with boundary values, string→enum coercion,
@@ -161,6 +162,34 @@ exported surface, `test_properties.py` for the property suite and
   (an AST walk; ADR-0006). These tests read a report recorded from
   hybrid-agent in `tests/fixtures/hybrid_agent_rules_first_report.json`
   (hybrid-agent at `65d5af6`), and count towards `--cov=episteme`.
+- `test_edge_breaks.py` (added 2026-11-27) — sentences of ADR-0006 and
+  ADR-0007 that could be broken in `episteme/edge.py` with every test
+  passing. Each test quotes the sentence it holds and names the break it
+  fails on. A proposed action never reaches a packet, even one shaped as an
+  observation (the recorded report proposes none, so the packet test in
+  `test_edge.py` could not tell); a check in one context leaves every facet
+  of another as it was; two references from one declared group count once
+  when a source is checked for consistency; reports on different beliefs are
+  not compared with each other, by a source's own history or against a
+  reference; a lean below the references is drift as much as a lean above.
+  And by `hypothesis`: any figures `Policy` accepts keep the record meaning what
+  ADR-0007 sections 4, 8 and 10 say (a pass raises trust and a failure lowers
+  it, a failure weighs at least as much as a success, ground truth at least
+  as much as consistency, the more recent failure is never the higher, trust
+  stays above 0 and under a ceiling below 1), with four fixed examples so
+  that the breaks it answers for fail on every run. These are not ADR
+  guards, and `test_edge.py` is not touched. FACT, measured 27 November
+  2026: of 83 single-change breaks made by hand in `edge.py`, 57 failed the
+  325 tests before this file, and eight of the nine guard tests the two
+  records name each failed on a break of its own rule (none was made for the
+  ninth, which holds an absence: a packet has no field for a figure); 26
+  passed all 325 at 100% line coverage. Four of the 26 change nothing a
+  caller could see. Of the other
+  22, these tests fail 10 on their fixed cases, without the search, and 12
+  still pass (Known gaps). The breaks were chosen by hand, not generated, so
+  the counts say nothing about breaks not tried; they were not kept as a
+  script, all 83 are listed in the pull request that added this file, and
+  each test's docstring names its own.
 - `test_example_edge_node.py` — the edge node's worked example,
   `examples/edge_node.py`, run end to end from the recorded report; and live,
   running hybrid-agent with `--rules-first`, skipped where hybrid-agent is
@@ -267,6 +296,24 @@ framework (AGENTS.md principle 10).
 - The doc check's citation rule has its tests (`test_check_docs.py`); its
   three older checks (links, front matter, the layout and ADR index against
   the disk) have none, so a slip in one of them would pass unseen.
+- Twelve single-change breaks of the edge node (`episteme/edge.py`) still
+  pass every test (27 November 2026; `test_edge_breaks.py` holds the ones
+  now failed). Each of these could be made and nothing would fail: `Policy`
+  accepting a negative `own_reliability` (it would fail later, in
+  `aggregate`, as a negative weight); a reference from another context
+  compared with a report; a source's history, or its drift window, kept
+  across contexts instead of per context; a failed ground-truth check
+  suspending a pair that was never verified; a group's cap counted when the
+  core refused the record, or shared across beliefs; a source verified during
+  a round used as a reference in that round; timeliness weighed as ground
+  truth; the drift window not restarted after a finding; a belief repeated
+  in the review list; and `resting_on` listing only the beliefs a source
+  supported, not those it counted against (the code lists both; ADR-0007
+  section 7 says "rest on" and section 8 says "supported", and which is
+  meant is the author's call, so no test pins it). ADR-0007 section 6 (a
+  report is ordered by when it was received, and being late neither raises
+  nor lowers it) has no test either: the receiving side never reads
+  `sent_at`, so there was no line to break.
 - Coverage sits at 100%, so the ratchet has no headroom left; the next
   raises come from new modules bringing their own tests, not from covering
   a backlog (`pytest --cov=episteme --cov-report=term-missing` confirms).
